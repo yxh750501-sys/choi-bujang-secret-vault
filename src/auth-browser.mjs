@@ -33,6 +33,7 @@ function clearEditor() {
   noteForm.reset();
   noteForm.hidden = true;
   deleteNoteButton.hidden = true;
+  deleteNoteButton.disabled = true;
   noteFormHeading.textContent = '새 메모';
   saveNoteButton.textContent = '저장';
 }
@@ -152,6 +153,7 @@ async function openNote(id) {
     saveNoteButton.textContent = '수정 저장';
     deleteNoteButton.hidden = false;
     noteForm.hidden = false;
+    setBusy(requestInFlight);
     notesStatus.textContent = '메모 내용을 불러왔습니다.';
     noteTitle.focus();
   } catch {
