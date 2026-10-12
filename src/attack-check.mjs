@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (![2, 3].includes(config.step)) throw new Error('2·3단계 공격 점검은 aleph.config.json의 step이 2 또는 3이어야 합니다.');
+  if (![2, 3, 4].includes(config.step)) throw new Error('2~4단계 공격 점검은 aleph.config.json의 step이 2, 3 또는 4여야 합니다.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -40,7 +40,7 @@ export async function runAttackChecks(config) {
     expected: '비로그인 요청에서 메모 0건 또는 404 응답',
     observed,
   }];
-  if (config.step === 3) {
+  if (config.step >= 3) {
     const apiResponse = await fetch(new URL('/api/notes', app), {
       redirect: 'error', signal: AbortSignal.timeout(10000),
     });

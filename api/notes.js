@@ -118,6 +118,7 @@ export function createNotesHandler({ verifierFactory = createLoginVerifier, veri
       if (!hasId && method === 'GET') {
         result = await supabase.from('notes')
           .select('id,title,content')
+          .eq('owner_id', identity.userId)
           .order('created_at', { ascending: true })
           .order('id', { ascending: true });
         if (!result.error && Array.isArray(result.data)
@@ -143,6 +144,7 @@ export function createNotesHandler({ verifierFactory = createLoginVerifier, veri
         result = await supabase.from('notes')
           .select('id,title,content')
           .eq('id', pathId)
+          .eq('owner_id', identity.userId)
           .maybeSingle();
         if (!result.error && !result.data) return jsonError(response, 404, 'NOTE_NOT_FOUND');
         if (!result.error && typeof result.data?.id === 'string'
@@ -153,6 +155,7 @@ export function createNotesHandler({ verifierFactory = createLoginVerifier, veri
         result = await supabase.from('notes')
           .update({ title: body.title.trim(), content: body.body })
           .eq('id', pathId)
+          .eq('owner_id', identity.userId)
           .select('id,title,content')
           .maybeSingle();
         if (!result.error && !result.data) return jsonError(response, 404, 'NOTE_NOT_FOUND');
@@ -164,6 +167,7 @@ export function createNotesHandler({ verifierFactory = createLoginVerifier, veri
         result = await supabase.from('notes')
           .delete()
           .eq('id', pathId)
+          .eq('owner_id', identity.userId)
           .select('id')
           .maybeSingle();
         if (!result.error && !result.data) return jsonError(response, 404, 'NOTE_NOT_FOUND');

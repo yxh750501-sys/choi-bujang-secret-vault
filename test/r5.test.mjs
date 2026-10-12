@@ -8,7 +8,7 @@ import { createAuthController, createAuthorizationHeader } from '../src/auth-con
 import { createLoginVerifier } from '../src/verify-login.mjs';
 
 const config = {
-  step: 3,
+  step: 4,
   judgeIssuer: 'https://aleph-judge-production.up.railway.app/defense/judge',
   sampleMarker: 'SAMPLE_NOTE_1',
   publicAppUrl: 'https://student-defense.vercel.app',
@@ -26,25 +26,30 @@ const env = {
   VERCEL_URL: 'student-defense-123.vercel.app',
 };
 const testUserId = '123e4567-e89b-42d3-a456-426614174000';
+const testUserBId = '123e4567-e89b-42d3-a456-426614174001';
 const testToken = `eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.${Buffer
   .from(JSON.stringify({ iss: config.identityProvider.issuer }))
   .toString('base64url')}.mock-signature`;
 
-function createTestNotesHandler() {
+const testTokenB = `${Buffer.from('{"alg":"ES256"}').toString('base64url')}.${Buffer.from(
+  JSON.stringify({ iss: config.identityProvider.issuer }),
+).toString('base64url')}.mock-b-signature`;
+
+function createTestNotesHandler({ validToken = testToken, userId = testUserId } = {}) {
   return createNotesHandler({
     verifierFactory: options => createLoginVerifier({
       ...options,
       judgeKeySet: () => {},
       supabaseClient: {
         auth: {
-          getClaims: async token => token === testToken
+          getClaims: async token => token === validToken
             ? {
               data: {
                 claims: {
                   iss: config.identityProvider.issuer,
                   aud: config.identityProvider.audience,
                   role: 'authenticated',
-                  sub: testUserId,
+                  sub: userId,
                   exp: Math.floor(Date.now() / 1000) + 300,
                 },
               },
@@ -107,7 +112,7 @@ function mockSupabaseAuth({ initialSession = null, signInError = null } = {}) {
 test('build identity uses Vercel Git and deployment metadata', () => {
   assert.deepEqual(deploymentIdentity(env, config), {
     schema: 'aleph.defense.deployment.v1',
-    step: 3,
+    step: 4,
     repoUrl: 'https://github.com/student-a/aleph-defense',
     commit: 'a'.repeat(40),
     publicAppUrl: 'https://student-defense-123.vercel.app',
@@ -118,7 +123,7 @@ test('build identity uses Vercel Git and deployment metadata', () => {
   assert.throws(() => deploymentIdentity({ ...env, VERCEL_GIT_COMMIT_SHA: 'short' }, config));
 });
 
-test('third-stage attack check confirms anonymous data is private and API denial is JSON', async () => {
+test('fourth-stage attack check confirms anonymous data is private and API denial is JSON', async () => {
   const originalFetch = globalThis.fetch;
   let requestUrl;
   const requestedUrls = [];
@@ -188,6 +193,7 @@ test('notes API requires verified bearer auth before reading rows', async () => 
   const diagnostics = [];
   const rows = Array.from({ length: 4 }, (_, index) => ({
     id: `123e4567-e89b-42d3-a456-${String(index + 1).padStart(12, '0')}`,
+    owner_id: testUserId,
     title: `Example ${index + 1}`,
     content: 'Fictional test content',
   }));
@@ -203,7 +209,8 @@ test('notes API requires verified bearer auth before reading rows', async () => 
       databaseRequests += 1;
       requestedUrl = new URL(url);
       requestKey = new Headers(options.headers).get('apikey');
-      return new Response(JSON.stringify(rows), {
+      const ownerId = requestedUrl.searchParams.get('owner_id')?.slice('eq.'.length);
+      return new Response(JSON.stringify(rows.filter(row => row.owner_id === ownerId)), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
@@ -238,6 +245,7 @@ test('notes API requires verified bearer auth before reading rows', async () => 
     assert.equal(requestedUrl.pathname, '/rest/v1/notes');
     assert.equal(requestedUrl.searchParams.has('limit'), false);
     assert.equal(requestedUrl.searchParams.has('userId'), false);
+    assert.equal(requestedUrl.searchParams.get('owner_id'), `eq.${testUserId}`);
     assert.equal(requestKey, 'sb_secret_test');
     assert.deepEqual(success.body, {
       notes: rows.map(({ id, title, content }) => ({ id, title, body: content })),
@@ -298,15 +306,18 @@ test('notes API requires verified bearer auth before reading rows', async () => 
   }
 });
 
-test('notes CRUD authenticates every route and maps body, id, and owner safely', async () => {
+test('notes CRUD enforces verified ownership for both users on every route', async () => {
   const originalFetch = globalThis.fetch;
   const previousUrl = process.env.SUPABASE_URL;
   const previousKey = process.env.SUPABASE_SECRET_KEY;
   const notesHandler = createTestNotesHandler();
   const notesByIdHandler = createTestNotesHandler();
+  const notesHandlerB = createTestNotesHandler({ validToken: testTokenB, userId: testUserBId });
+  const notesByIdHandlerB = createTestNotesHandler({ validToken: testTokenB, userId: testUserBId });
   const rows = new Map();
   const requests = [];
   const createdIdHolder = [];
+  const apiTokenB = `Bearer ${testTokenB}`;
   const secretKey = 'sb_secret_test';
   const apiToken = `Bearer ${testToken}`;
 
@@ -314,12 +325,14 @@ test('notes CRUD authenticates every route and maps body, id, and owner safely',
     const parsed = new URL(url);
     const method = options.method ?? 'GET';
     const id = parsed.searchParams.get('id')?.slice('eq.'.length);
+    const ownerId = parsed.searchParams.get('owner_id')?.slice('eq.'.length);
     const suppliedKey = new Headers(options.headers).get('apikey');
     assert.equal(suppliedKey, secretKey);
-    requests.push({ method, id, url: parsed });
+    requests.push({ method, id, ownerId, url: parsed });
 
     if (method === 'GET') {
-      const result = [...rows.values()].filter(row => !id || row.id === id);
+      const result = [...rows.values()].filter(row =>
+        (!id || row.id === id) && row.owner_id === ownerId);
       return new Response(JSON.stringify(result), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -336,7 +349,7 @@ test('notes CRUD authenticates every route and maps body, id, and owner safely',
     }
     if (method === 'PATCH') {
       const row = rows.get(id);
-      if (!row) return new Response('[]', { status: 200 });
+      if (!row || row.owner_id !== ownerId) return new Response('[]', { status: 200 });
       const update = JSON.parse(options.body);
       Object.assign(row, update);
       return new Response(JSON.stringify(row), {
@@ -345,8 +358,8 @@ test('notes CRUD authenticates every route and maps body, id, and owner safely',
       });
     }
     if (method === 'DELETE') {
-      const existed = rows.has(id);
-      rows.delete(id);
+      const existed = rows.get(id)?.owner_id === ownerId;
+      if (existed) rows.delete(id);
       return new Response(JSON.stringify(existed ? { id } : null), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -354,6 +367,24 @@ test('notes CRUD authenticates every route and maps body, id, and owner safely',
     }
     throw new Error(`Unexpected test method: ${method}`);
   };
+
+  const aNoteIds = Array.from({ length: 4 }, (_, index) =>
+    `223e4567-e89b-42d3-a456-${String(index + 1).padStart(12, '0')}`);
+  const bNoteId = '323e4567-e89b-42d3-a456-000000000001';
+  for (const [index, id] of aNoteIds.entries()) {
+    rows.set(id, {
+      id,
+      owner_id: testUserId,
+      title: `A virtual note ${index + 1}`,
+      content: `A fictional body ${index + 1}`,
+    });
+  }
+  rows.set(bNoteId, {
+    id: bNoteId,
+    owner_id: testUserBId,
+    title: 'B virtual note',
+    content: 'B fictional body',
+  });
 
   const invoke = async (handler, method, { id, authorization = apiToken, body } = {}) => {
     const result = mockResponse();
@@ -364,7 +395,7 @@ test('notes CRUD authenticates every route and maps body, id, and owner safely',
       body,
       userId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
       role: 'admin',
-      owner_id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      owner_id: testUserBId,
     }, result.response);
     return result;
   };
@@ -423,9 +454,13 @@ test('notes CRUD authenticates every route and maps body, id, and owner safely',
 
     const list = await invoke(notesHandler, 'GET');
     assert.equal(list.statusCode, 200);
-    assert.deepEqual(list.body, {
-      notes: [{ id: created.body.id, title: 'Virtual note', body: 'Fictional test body' }],
-    });
+    assert.equal(list.body.notes.length, 5);
+    assert.deepEqual(list.body.notes.map(note => note.id), [...aNoteIds, created.body.id]);
+    assert.equal(list.body.notes.some(note => note.id === bNoteId), false);
+
+    const bList = await invoke(notesHandlerB, 'GET', { authorization: apiTokenB });
+    assert.equal(bList.statusCode, 200);
+    assert.deepEqual(bList.body.notes.map(note => note.id), [bNoteId]);
 
     const detail = await invoke(notesByIdHandler, 'GET', { id: created.body.id });
     assert.equal(detail.statusCode, 200);
@@ -437,7 +472,11 @@ test('notes CRUD authenticates every route and maps body, id, and owner safely',
 
     const updated = await invoke(notesByIdHandler, 'PUT', {
       id: created.body.id,
-      body: { title: 'Updated virtual note', body: 'Updated fictional body' },
+      body: {
+        title: 'Updated virtual note',
+        body: 'Updated fictional body',
+        owner_id: testUserBId,
+      },
     });
     assert.equal(updated.statusCode, 200);
     assert.deepEqual(updated.body, {
@@ -445,7 +484,38 @@ test('notes CRUD authenticates every route and maps body, id, and owner safely',
       title: 'Updated virtual note',
       body: 'Updated fictional body',
     });
+    assert.equal(rows.get(created.body.id).owner_id, testUserId);
     assert.deepEqual((await invoke(notesByIdHandler, 'GET', { id: created.body.id })).body, updated.body);
+
+    for (const [method, body] of [
+      ['GET', undefined],
+      ['PUT', { title: 'Unauthorized change', body: 'Must remain unchanged', owner_id: testUserId }],
+      ['DELETE', undefined],
+    ]) {
+      const before = { ...rows.get(bNoteId) };
+      const denied = await invoke(notesByIdHandler, method, {
+        id: bNoteId,
+        ...(body ? { body } : {}),
+      });
+      assert.equal(denied.statusCode, 404);
+      assert.deepEqual(denied.body, { error: 'NOTE_NOT_FOUND' });
+      assert.deepEqual(rows.get(bNoteId), before);
+    }
+    for (const [method, body] of [
+      ['GET', undefined],
+      ['PUT', { title: 'Unauthorized change', body: 'Must remain unchanged', owner_id: testUserBId }],
+      ['DELETE', undefined],
+    ]) {
+      const before = { ...rows.get(aNoteIds[0]) };
+      const denied = await invoke(notesByIdHandlerB, method, {
+        id: aNoteIds[0],
+        authorization: apiTokenB,
+        ...(body ? { body } : {}),
+      });
+      assert.equal(denied.statusCode, 404);
+      assert.deepEqual(denied.body, { error: 'NOTE_NOT_FOUND' });
+      assert.deepEqual(rows.get(aNoteIds[0]), before);
+    }
 
     const deleted = await invoke(notesByIdHandler, 'DELETE', { id: created.body.id });
     assert.equal(deleted.statusCode, 200);
@@ -454,13 +524,48 @@ test('notes CRUD authenticates every route and maps body, id, and owner safely',
     assert.equal(afterDelete.statusCode, 404);
     assert.deepEqual(afterDelete.body, { error: 'NOTE_NOT_FOUND' });
 
-    const providedId = '123e4567-e89b-42d3-a456-426614174001';
+    const providedId = '423e4567-e89b-42d3-a456-426614174001';
     const createdWithId = await invoke(notesHandler, 'POST', {
       body: { id: providedId, title: 'Client-selected UUID', body: 'Fictional content' },
     });
     assert.equal(createdWithId.statusCode, 201);
     assert.deepEqual(createdWithId.body, { id: providedId });
     assert.equal(rows.get(providedId).owner_id, testUserId);
+
+    const bCreated = await invoke(notesHandlerB, 'POST', {
+      authorization: apiTokenB,
+      body: {
+        title: 'B-owned new note',
+        body: 'Fictional body belonging to B',
+        owner_id: testUserId,
+      },
+    });
+    assert.equal(bCreated.statusCode, 201);
+    assert.equal(rows.get(bCreated.body.id).owner_id, testUserBId);
+    const bDetail = await invoke(notesByIdHandlerB, 'GET', {
+      id: bCreated.body.id,
+      authorization: apiTokenB,
+    });
+    assert.equal(bDetail.statusCode, 200);
+    const bUpdated = await invoke(notesByIdHandlerB, 'PUT', {
+      id: bCreated.body.id,
+      authorization: apiTokenB,
+      body: { title: 'B updated note', body: 'Updated fictional body', owner_id: testUserId },
+    });
+    assert.equal(bUpdated.statusCode, 200);
+    assert.equal(rows.get(bCreated.body.id).owner_id, testUserBId);
+    const bDeleted = await invoke(notesByIdHandlerB, 'DELETE', {
+      id: bCreated.body.id,
+      authorization: apiTokenB,
+    });
+    assert.equal(bDeleted.statusCode, 200);
+
+    for (const request of requests.filter(request => request.method !== 'POST')) {
+      assert.ok(
+        [testUserId, testUserBId].includes(request.ownerId),
+        'every read, update, and delete query must be scoped to a verified owner',
+      );
+    }
   } finally {
     globalThis.fetch = originalFetch;
     if (previousUrl === undefined) delete process.env.SUPABASE_URL;
@@ -521,7 +626,7 @@ test('auth controller signs in, restores a session, and signs out', async () => 
   assert.equal(await restored.getAccessToken(), null);
 });
 
-test('CRUD UI, server-only database privileges, and stage-three routes are configured', async () => {
+test('CRUD UI, server-only database privileges, and stage-four routes are configured', async () => {
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   const browserModule = await readFile(new URL('../src/auth-browser.mjs', import.meta.url), 'utf8');
   const browserController = await readFile(new URL('../src/auth-controller.mjs', import.meta.url), 'utf8');
@@ -530,7 +635,11 @@ test('CRUD UI, server-only database privileges, and stage-three routes are confi
   const schema = await readFile(new URL('../supabase/schema.sql', import.meta.url), 'utf8');
   const buildScript = await readFile(new URL('../scripts/build-public.mjs', import.meta.url), 'utf8');
   const vercelConfig = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url), 'utf8'));
-  assert.equal(configFile.step, 3);
+  assert.equal(configFile.step, 4);
+  assert.match(buildScript, /config\.step !== 4/u);
+  assert.match(buildScript, /aleph\.config\.json의 step이 4이어야 합니다/u);
+  assert.match(buildScript, /공개 data\.json을 생성하지 않았습니다/u);
+  assert.match(buildScript, /resolve\(root, 'public', 'aleph\.json'\)/u);
   assert.deepEqual(configFile.allowedRoutes, [
     'GET /api/notes',
     'POST /api/notes',
