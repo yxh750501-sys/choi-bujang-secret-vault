@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import config from '../aleph.config.json' with { type: 'json' };
+import { readAccessTokenCookie, verifyCsrfRequest } from '../src/server-session.mjs';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
@@ -41,6 +42,19 @@ function unavailable(response) {
   return jsonError(response, 503, 'NOTES_UNAVAILABLE');
 }
 
+function jsonRequest(request) {
+  const contentType = request.headers?.['content-type'] ?? request.headers?.['Content-Type'];
+  return typeof contentType === 'string'
+    && /^application\/json(?:\s*;\s*charset=utf-8)?$/iu.test(contentType);
+}
+
+function validCookieMutationContentType(request, method) {
+  const contentType = request.headers?.['content-type'] ?? request.headers?.['Content-Type'];
+  const hasBody = request.body !== undefined && request.body !== null && request.body !== '';
+  if (method === 'DELETE' && !hasBody && contentType === undefined) return true;
+  return jsonRequest(request);
+}
+
 function reportDiagnostic({ supabaseUrl, secretKey, httpStatus, errorCode }) {
   const code = typeof errorCode === 'string' && /^[A-Za-z0-9_-]{1,32}$/u.test(errorCode)
     ? errorCode
@@ -66,9 +80,37 @@ export function createNotesHandler({ verifierFactory = createLoginVerifier, veri
       return jsonError(response, 405, 'METHOD_NOT_ALLOWED');
     }
 
-    const authorization = request.headers?.authorization ?? request.headers?.Authorization;
-    if (typeof authorization !== 'string' || !authorization.trim()) {
+    const authorizationHeader = request.headers?.authorization ?? request.headers?.Authorization;
+    const hasAuthorizationHeader = authorizationHeader !== undefined && authorizationHeader !== null;
+    const accessCookie = readAccessTokenCookie(request);
+    if (hasAuthorizationHeader && accessCookie.sessionPresent) {
+      return jsonError(response, 401, 'AMBIGUOUS_AUTHENTICATION');
+    }
+
+    let authorization;
+    let cookieAuthenticated = false;
+    if (hasAuthorizationHeader) {
+      if (typeof authorizationHeader !== 'string' || !authorizationHeader.trim()) {
+        return jsonError(response, 401, 'AUTHENTICATION_REQUIRED');
+      }
+      authorization = authorizationHeader;
+    } else if (accessCookie.present) {
+      if (typeof accessCookie.token !== 'string' || !accessCookie.token) {
+        return jsonError(response, 401, 'AUTHENTICATION_REQUIRED');
+      }
+      cookieAuthenticated = true;
+      authorization = `Bearer ${accessCookie.token}`;
+    } else {
       return jsonError(response, 401, 'AUTHENTICATION_REQUIRED');
+    }
+
+    if (cookieAuthenticated && ['POST', 'PUT', 'DELETE'].includes(method)) {
+      if (!verifyCsrfRequest(request)) {
+        return jsonError(response, 403, 'CSRF_VALIDATION_FAILED');
+      }
+      if (!validCookieMutationContentType(request, method)) {
+        return jsonError(response, 415, 'UNSUPPORTED_MEDIA_TYPE');
+      }
     }
 
     const supabaseUrl = process.env.SUPABASE_URL;

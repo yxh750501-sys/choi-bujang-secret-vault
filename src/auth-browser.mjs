@@ -1,4 +1,4 @@
-import { createAuthController, createAuthorizationHeader } from './auth-controller.mjs';
+import { createAuthController } from './auth-controller.mjs';
 
 const form = document.querySelector('#login-form');
 const emailInput = document.querySelector('#login-email');
@@ -45,14 +45,6 @@ function clearNotes() {
   notesStatus.dataset.kind = 'status';
 }
 
-function showSetupMessage() {
-  loginButton.disabled = true;
-  emailInput.disabled = true;
-  passwordInput.disabled = true;
-  authStatus.textContent = 'Supabase 로그인 설정이 아직 준비되지 않았습니다.';
-  authStatus.dataset.kind = 'error';
-}
-
 function setBusy(busy) {
   requestInFlight = busy;
   const disabled = busy || !controller?.state.authenticated;
@@ -94,33 +86,10 @@ async function apiRequest(path, options = {}) {
   setBusy(true);
   try {
     const sessionRevision = controller.state.sessionRevision;
-    const accessToken = await controller.getAccessToken();
-    if (!accessToken) {
-      await controller.expireSession();
-      throw new Error('AUTH_SESSION_EXPIRED');
-    }
-    const response = await fetch(path, {
-      ...options,
-      cache: 'no-store',
-      headers: {
-        ...options.headers,
-        Authorization: createAuthorizationHeader(accessToken),
-      },
-    });
+    const result = await controller.request(path, options);
     if (!controller.state.authenticated || sessionRevision !== controller.state.sessionRevision) {
       throw new Error('AUTH_SESSION_CHANGED');
     }
-    if (response.status === 401 || response.status === 403) {
-      await controller.expireSession();
-      throw new Error('AUTH_SESSION_EXPIRED');
-    }
-    let result;
-    try {
-      result = await response.json();
-    } catch {
-      throw new Error('INVALID_API_RESPONSE');
-    }
-    if (!response.ok) throw new Error(typeof result?.error === 'string' ? result.error : 'API_REQUEST_FAILED');
     return result;
   } finally {
     setBusy(false);
@@ -265,24 +234,6 @@ deleteNoteButton.addEventListener('click', async () => {
   }
 });
 
-const config = window.BYTE_BACK_SUPABASE_CONFIG;
-if (!config?.supabaseUrl || !config?.publishableKey || !window.supabase?.createClient) {
-  showSetupMessage();
-  clearNotes();
-} else {
-  try {
-    const supabase = window.supabase.createClient(config.supabaseUrl, config.publishableKey, {
-      auth: { autoRefreshToken: true, persistSession: true, detectSessionInUrl: true },
-    });
-    controller = createAuthController(supabase, render);
-    render(controller.state);
-    void controller.initialize();
-  } catch {
-    showSetupMessage();
-    clearNotes();
-  }
-}
-
-export async function getAccessToken() {
-  return controller ? controller.getAccessToken() : null;
-}
+controller = createAuthController(render);
+render(controller.state);
+void controller.initialize();

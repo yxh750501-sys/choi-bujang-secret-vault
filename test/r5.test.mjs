@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { createNotesHandler } from '../api/notes.js';
 import { deploymentIdentity } from '../scripts/deployment-identity.mjs';
 import { runAttackChecks } from '../src/attack-check.mjs';
-import { createAuthController, createAuthorizationHeader } from '../src/auth-controller.mjs';
+import { createAuthController } from '../src/auth-controller.mjs';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 
 const config = {
@@ -74,39 +74,6 @@ function mockResponse() {
     },
   };
   return { response, headers, get statusCode() { return statusCode; }, get body() { return body; } };
-}
-
-function mockSupabaseAuth({ initialSession = null, signInError = null } = {}) {
-  let session = initialSession;
-  let authStateListener = () => {};
-  let signInCalls = 0;
-  let signOutCalls = 0;
-  const auth = {
-    getSession: async () => ({ data: { session }, error: null }),
-    onAuthStateChange: listener => {
-      authStateListener = listener;
-      return { data: { subscription: { unsubscribe() {} } } };
-    },
-    signInWithPassword: async ({ email }) => {
-      signInCalls += 1;
-      if (signInError) return { data: { session: null }, error: signInError };
-      session = { user: { email }, access_token: 'test-access-token' };
-      authStateListener('SIGNED_IN', session);
-      return { data: { session }, error: null };
-    },
-    signOut: async () => {
-      signOutCalls += 1;
-      session = null;
-      authStateListener('SIGNED_OUT', null);
-      return { error: null };
-    },
-  };
-  return {
-    client: { auth },
-    get session() { return session; },
-    get signInCalls() { return signInCalls; },
-    get signOutCalls() { return signOutCalls; },
-  };
 }
 
 test('build identity uses Vercel Git and deployment metadata', () => {
@@ -576,9 +543,10 @@ test('notes CRUD enforces verified ownership for both users on every route', asy
   }
 });
 
-test('public page loads a login form and local Supabase modules only', async () => {
+test('public page keeps login and notes UI without browser Supabase Auth', async () => {
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   const browserModule = await readFile(new URL('../src/auth-browser.mjs', import.meta.url), 'utf8');
+  const browserController = await readFile(new URL('../src/auth-controller.mjs', import.meta.url), 'utf8');
   assert.match(html, /id="login-form"/u);
   assert.match(html, /id="login-email"/u);
   assert.match(html, /id="login-password"/u);
@@ -586,45 +554,87 @@ test('public page loads a login form and local Supabase modules only', async () 
   assert.match(html, /id="note-form"/u);
   assert.match(html, /id="new-note"/u);
   assert.match(html, /id="delete-note"/u);
-  assert.match(html, /src="\/vendor\/supabase\.js"/u);
-  assert.match(html, /src="\/supabase-config\.js"/u);
+  assert.doesNotMatch(html, /vendor\/supabase\.js|supabase-config\.js/u);
   assert.match(html, /src="\/auth-browser\.mjs"/u);
   assert.match(browserModule, /apiRequest\('\/api\/notes'/u);
-  assert.match(browserModule, /Authorization: createAuthorizationHeader\(accessToken\)/u);
-  assert.equal(createAuthorizationHeader('test-access-token'), 'Bearer test-access-token');
-  assert.throws(() => createAuthorizationHeader(''));
-  assert.doesNotMatch(`${html}\n${browserModule}`, /SUPABASE_SECRET_KEY|sb_secret_/u);
+  assert.match(browserModule, /controller = createAuthController\(render\)/u);
+  assert.match(browserController, /\/api\/auth\/login/u);
+  assert.match(browserController, /\/api\/auth\/session/u);
+  assert.match(browserController, /\/api\/auth\/refresh/u);
+  assert.match(browserController, /\/api\/auth\/logout/u);
+  assert.match(browserController, /credentials: 'same-origin'/u);
+  assert.doesNotMatch(`${html}\n${browserModule}\n${browserController}`,
+    /window\.supabase|BYTE_BACK_SUPABASE_CONFIG|Authorization|signInWithPassword|auth\.signOut|auth\.getSession|localStorage|sessionStorage|console\.|SUPABASE_SECRET_KEY|sb_secret_/u);
 });
 
-test('auth controller signs in, restores a session, and signs out', async () => {
-  const auth = mockSupabaseAuth();
+test('auth controller logs in, restores a server session, and logs out with same-origin CSRF', async () => {
+  const calls = [];
+  let signedIn = false;
+  let csrfCount = 0;
+  const fetchMock = async (path, options = {}) => {
+    calls.push({ path, options });
+    assert.equal(options.credentials, 'same-origin');
+    if (path === '/api/auth/csrf') {
+      csrfCount += 1;
+      return new Response(JSON.stringify({ csrfToken: `csrf-${csrfCount}` }), { status: 200 });
+    }
+    if (path === '/api/auth/session') {
+      return signedIn
+        ? new Response(JSON.stringify({
+          authenticated: true,
+          user: { id: testUserId, email: 'student@example.test' },
+        }), { status: 200 })
+        : new Response(JSON.stringify({ error: 'AUTHENTICATION_REQUIRED' }), { status: 401 });
+    }
+    if (path === '/api/auth/refresh') {
+      return new Response(JSON.stringify({ error: 'SESSION_REFRESH_FAILED' }), { status: 401 });
+    }
+    if (path === '/api/auth/login') {
+      assert.equal(options.headers['X-CSRF-Token'], `csrf-${csrfCount}`);
+      assert.deepEqual(JSON.parse(options.body), {
+        email: 'student@example.test',
+        password: 'fake-password-for-test-only',
+      });
+      signedIn = true;
+      return new Response(JSON.stringify({
+        authenticated: true,
+        user: { id: testUserId, email: 'student@example.test' },
+      }), { status: 200 });
+    }
+    if (path === '/api/auth/logout') {
+      assert.equal(options.headers['X-CSRF-Token'], `csrf-${csrfCount}`);
+      signedIn = false;
+      return new Response(JSON.stringify({ authenticated: false, serverSessionRevoked: true }), { status: 200 });
+    }
+    throw new Error(`Unexpected request: ${path}`);
+  };
   const states = [];
-  const controller = createAuthController(auth.client, state => states.push(state));
+  const controller = createAuthController(state => states.push(state), fetchMock);
   await controller.initialize();
   assert.equal(controller.state.loading, false);
   assert.equal(controller.state.authenticated, false);
+  assert.match(controller.state.message, /자동 이전되지 않습니다/u);
 
-  const mockPassword = String(Date.now());
-  assert.equal(await controller.signIn('student@example.test', mockPassword), true);
-  assert.equal(auth.signInCalls, 1);
+  assert.equal(await controller.signIn(' student@example.test ', 'fake-password-for-test-only'), true);
   assert.equal(controller.state.authenticated, true);
   assert.equal(controller.state.email, 'student@example.test');
-  assert.equal(await controller.getAccessToken(), 'test-access-token');
   assert.equal(controller.state.sessionRevision, 1);
+  const loginIndex = calls.findIndex(call => call.path === '/api/auth/login');
+  assert.equal(calls[loginIndex - 1].path, '/api/auth/csrf');
+  assert.equal(calls[loginIndex].options.method, 'POST');
+  assert.equal(calls[loginIndex].options.headers['Content-Type'], 'application/json');
 
-  const restoredStates = [];
-  const restored = createAuthController(mockSupabaseAuth({ initialSession: auth.session }).client,
-    state => restoredStates.push(state));
+  const restored = createAuthController(() => {}, fetchMock);
   await restored.initialize();
   assert.equal(restored.state.authenticated, true);
   assert.equal(restored.state.email, 'student@example.test');
-  assert.equal(await restored.getAccessToken(), 'test-access-token');
-  assert.equal(await restored.signOut(), true);
-  assert.equal(restored.state.authenticated, false);
-  assert.equal(restored.state.email, null);
+  assert.equal(await controller.signOut(), true);
+  assert.equal(controller.state.authenticated, false);
+  assert.equal(controller.state.email, null);
   assert.ok(states.some(state => state.authenticated));
-  assert.ok(restoredStates.some(state => state.authenticated));
-  assert.equal(await restored.getAccessToken(), null);
+  assert.ok(states.some(state => !state.authenticated));
+  assert.doesNotMatch(JSON.stringify(calls.map(call => call.path)), /password|access|refresh_token/u);
+  assert.ok(calls.every(call => !new Headers(call.options.headers).has('Authorization')));
 });
 
 test('CRUD UI, server-only database privileges, and stage-five routes are configured', async () => {
@@ -657,7 +667,7 @@ test('CRUD UI, server-only database privileges, and stage-five routes are config
   assert.match(html, /id="note-form"/u);
   assert.match(html, /id="new-note"/u);
   assert.match(html, /id="delete-note"/u);
-  assert.match(browserModule, /Authorization:/u);
+  assert.doesNotMatch(browserModule, /Authorization/u);
   assert.doesNotMatch(`${browserModule}\n${browserController}\n${html}`, /\.from\s*\(\s*['"]notes['"]\s*\)|\/rest\/v1\/notes/u);
   assert.match(browserModule, /apiRequest\('\/api\/notes'\)/u);
   assert.ok(browserModule.includes('apiRequest(`/api/notes/${encodeURIComponent(id)}`)'));
@@ -679,53 +689,176 @@ test('CRUD UI, server-only database privileges, and stage-five routes are config
   assert.doesNotMatch(`${html}\n${browserModule}\n${browserController}`, /SUPABASE_SECRET_KEY|sb_secret_/u);
 });
 
-test('auth controller rejects tokenless sessions and clears expired sessions locally', async () => {
-  const tokenless = createAuthController(mockSupabaseAuth({
-    initialSession: { user: { email: 'student@example.test' } },
-  }).client);
-  await tokenless.initialize();
-  assert.equal(tokenless.state.authenticated, false);
-  assert.equal(await tokenless.getAccessToken(), null);
-
-  const auth = mockSupabaseAuth();
-  const controller = createAuthController(auth.client);
+test('auth controller refreshes an expired server session once and drops auth on refresh failure', async () => {
+  const calls = [];
+  const fetchMock = async path => {
+    calls.push(path);
+    if (path === '/api/auth/session') {
+      return new Response(JSON.stringify({ error: 'AUTHENTICATION_REQUIRED' }), { status: 401 });
+    }
+    if (path === '/api/auth/csrf') {
+      return new Response(JSON.stringify({ csrfToken: 'csrf-test-value' }), { status: 200 });
+    }
+    if (path === '/api/auth/refresh') {
+      return new Response(JSON.stringify({ error: 'SESSION_REFRESH_FAILED' }), { status: 401 });
+    }
+    throw new Error(`Unexpected request: ${path}`);
+  };
+  const controller = createAuthController(() => {}, fetchMock);
   await controller.initialize();
-  assert.equal(await controller.signIn('student@example.test', 'test-password'), true);
-  assert.equal(await controller.expireSession(), true);
+  assert.equal(calls.filter(path => path === '/api/auth/refresh').length, 1);
   assert.equal(controller.state.authenticated, false);
-  assert.equal(controller.state.email, null);
-  assert.match(controller.state.message, /서버 인증이 만료/u);
-  assert.equal(await controller.getAccessToken(), null);
+  assert.match(controller.state.message, /자동 이전되지 않습니다/u);
+  assert.doesNotMatch(JSON.stringify(calls), /password|access|refresh_token/u);
 });
 
 test('auth controller returns safe login errors and blocks duplicate submits', async () => {
-  const auth = mockSupabaseAuth({
-    signInError: {
-      code: 'invalid_credentials',
-      status: 400,
-      message: 'private auth error detail',
-    },
+  let releaseLogin;
+  let markLoginStarted;
+  const loginStarted = new Promise(resolve => {
+    markLoginStarted = resolve;
   });
-  const controller = createAuthController(auth.client);
+  const requests = [];
+  const fetchMock = async (path, options = {}) => {
+    requests.push({ path, options });
+    if (path === '/api/auth/session') {
+      return new Response(JSON.stringify({ error: 'AUTH_UNAVAILABLE' }), { status: 503 });
+    }
+    if (path === '/api/auth/csrf') {
+      return new Response(JSON.stringify({ csrfToken: 'csrf-test-value' }), { status: 200 });
+    }
+    if (path === '/api/auth/login') {
+      markLoginStarted();
+      return new Promise(resolve => {
+        releaseLogin = () => resolve(new Response(JSON.stringify({
+          error: 'AUTHENTICATION_FAILED',
+        }), { status: 401 }));
+      });
+    }
+    throw new Error(`Unexpected request: ${path}`);
+  };
+  const controller = createAuthController(() => {}, fetchMock);
   await controller.initialize();
-  assert.equal(await controller.signIn('student@example.test', String(Date.now())), false);
-  assert.equal(controller.state.message, '이메일 또는 비밀번호를 확인해 주세요.');
-  assert.doesNotMatch(controller.state.message, /private auth error detail/u);
-  assert.equal(auth.signInCalls, 1);
-
-  const pendingAuth = mockSupabaseAuth();
-  let releaseSignIn;
-  pendingAuth.client.auth.signInWithPassword = () => new Promise(resolve => {
-    releaseSignIn = () => resolve({
-      data: { session: null },
-      error: { code: 'invalid_credentials', status: 400 },
-    });
-  });
-  const pendingController = createAuthController(pendingAuth.client);
-  await pendingController.initialize();
-  const pendingResult = pendingController.signIn('student@example.test', String(Date.now()));
-  assert.equal(pendingController.state.busy, true);
-  assert.equal(await pendingController.signIn('student@example.test', String(Date.now())), false);
-  releaseSignIn();
+  const pendingResult = controller.signIn('student@example.test', 'fake-password-for-test-only');
+  assert.equal(controller.state.busy, true);
+  assert.equal(await controller.signIn('student@example.test', 'another-fake-password'), false);
+  await loginStarted;
+  releaseLogin();
   assert.equal(await pendingResult, false);
+  assert.equal(controller.state.message, '이메일 또는 비밀번호를 확인해 주세요.');
+  assert.equal(requests.filter(request => request.path === '/api/auth/login').length, 1);
+  assert.doesNotMatch(JSON.stringify(controller.state), /fake-password|private auth error detail/u);
+});
+
+test('notes requests use HttpOnly-cookie credentials, CSRF for mutations, and one shared refresh', async () => {
+  const calls = [];
+  let notesGetCount = 0;
+  let refreshCount = 0;
+  const fetchMock = async (path, options = {}) => {
+    calls.push({ path, options });
+    if (path === '/api/auth/session') {
+      return new Response(JSON.stringify({
+        authenticated: true,
+        user: { id: testUserId, email: 'student@example.test' },
+      }), { status: 200 });
+    }
+    if (path === '/api/auth/csrf') {
+      return new Response(JSON.stringify({ csrfToken: 'csrf-browser-test' }), { status: 200 });
+    }
+    if (path === '/api/auth/refresh') {
+      refreshCount += 1;
+      await new Promise(resolve => setTimeout(resolve, 10));
+      return new Response(JSON.stringify({
+        authenticated: true,
+        user: { id: testUserId, email: 'student@example.test' },
+      }), { status: 200 });
+    }
+    if (path === '/api/notes' && options.method === 'GET') {
+      notesGetCount += 1;
+      if (notesGetCount <= 2) {
+        return new Response(JSON.stringify({ error: 'AUTHENTICATION_REQUIRED' }), { status: 401 });
+      }
+      return new Response(JSON.stringify({ notes: [{ id: 'note-a', title: 'A', body: 'Body' }] }), { status: 200 });
+    }
+    if (path === '/api/notes' && options.method === 'POST') {
+      return new Response(JSON.stringify({ id: 'new-a' }), { status: 201 });
+    }
+    if (path === '/api/notes/note-a' && options.method === 'PUT') {
+      return new Response(JSON.stringify({ id: 'note-a', title: 'Updated', body: 'New body' }), { status: 200 });
+    }
+    if (path === '/api/notes/note-a' && options.method === 'DELETE') {
+      return new Response(JSON.stringify({ id: 'note-a' }), { status: 200 });
+    }
+    if (path === '/api/notes/csrf-denied') {
+      return new Response(JSON.stringify({ error: 'CSRF_VALIDATION_FAILED' }), { status: 403 });
+    }
+    throw new Error(`Unexpected request: ${path}`);
+  };
+  const controller = createAuthController(() => {}, fetchMock);
+  await controller.initialize();
+  const [firstList, secondList] = await Promise.all([
+    controller.request('/api/notes'),
+    controller.request('/api/notes'),
+  ]);
+  assert.deepEqual(firstList.notes.map(note => note.id), ['note-a']);
+  assert.deepEqual(secondList.notes.map(note => note.id), ['note-a']);
+  assert.equal(refreshCount, 1);
+  assert.equal(notesGetCount, 4);
+
+  assert.deepEqual(await controller.request('/api/notes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: 'New A', body: 'Fictional body' }),
+  }), { id: 'new-a' });
+  assert.deepEqual(await controller.request('/api/notes/note-a', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: 'Updated', body: 'New body' }),
+  }), { id: 'note-a', title: 'Updated', body: 'New body' });
+  assert.deepEqual(await controller.request('/api/notes/note-a', { method: 'DELETE' }), { id: 'note-a' });
+
+  const notesCalls = calls.filter(call => call.path.startsWith('/api/notes'));
+  assert.ok(notesCalls.every(call => call.options.credentials === 'same-origin'));
+  assert.ok(notesCalls.every(call => !new Headers(call.options.headers).has('Authorization')));
+  for (const call of notesCalls.filter(call => ['POST', 'PUT', 'DELETE'].includes(call.options.method))) {
+    assert.equal(new Headers(call.options.headers).get('x-csrf-token'), 'csrf-browser-test');
+  }
+  const deleteCall = notesCalls.find(call => call.options.method === 'DELETE');
+  assert.equal(new Headers(deleteCall.options.headers).has('content-type'), false);
+  await assert.rejects(controller.request('/api/notes/csrf-denied', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: 'Blocked', body: 'Blocked' }),
+  }), /CSRF_VALIDATION_FAILED/u);
+  assert.equal(refreshCount, 1, '403 CSRF failures must not trigger session refresh');
+  assert.equal(calls.filter(call => call.path === '/api/notes/csrf-denied').length, 1);
+});
+
+test('failed refresh after note 401 clears authenticated state and never retries indefinitely', async () => {
+  const calls = [];
+  const fetchMock = async (path, options = {}) => {
+    calls.push({ path, options });
+    if (path === '/api/auth/session') {
+      return new Response(JSON.stringify({
+        authenticated: true,
+        user: { id: testUserId, email: 'student@example.test' },
+      }), { status: 200 });
+    }
+    if (path === '/api/notes') {
+      return new Response(JSON.stringify({ error: 'AUTHENTICATION_REQUIRED' }), { status: 401 });
+    }
+    if (path === '/api/auth/csrf') {
+      return new Response(JSON.stringify({ csrfToken: 'csrf-browser-test' }), { status: 200 });
+    }
+    if (path === '/api/auth/refresh') {
+      return new Response(JSON.stringify({ error: 'SESSION_REFRESH_FAILED' }), { status: 401 });
+    }
+    throw new Error(`Unexpected request: ${path}`);
+  };
+  const controller = createAuthController(() => {}, fetchMock);
+  await controller.initialize();
+  await assert.rejects(controller.request('/api/notes'), /AUTH_SESSION_EXPIRED/u);
+  assert.equal(controller.state.authenticated, false);
+  assert.equal(calls.filter(call => call.path === '/api/notes').length, 1);
+  assert.equal(calls.filter(call => call.path === '/api/auth/refresh').length, 1);
 });
