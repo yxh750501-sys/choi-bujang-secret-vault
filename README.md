@@ -1,25 +1,56 @@
-# BYTE BACK 방어전 시작 틀 R5
+# BYTE BACK 방어전 R5
 
-이 저장소는 1단계에서 학생 본인이 GitHub 저장소와 Vercel 배포를 만드는 출발점입니다. 포함된 메모 네 건은 가상 자료입니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
+1단계의 공개 가상 자료실을 만들었고, 현재 `aleph.config.json`은 2단계입니다. 메모는 정적 JSON에서 제거했으며, 서버 API가 Supabase에서 읽습니다. 실제 개인정보, 비밀번호, 토큰, 서버 전용 키를 저장소에 넣지 마세요.
 
-## 학생이 하는 일: 세 걸음
+## 현재 동작
 
-1. GitHub 계정을 만듭니다.
-2. 방어전 1단계 카드의 **Deploy** 버튼을 누릅니다. Vercel에 GitHub로 로그인하고, 새 저장소가 **본인 계정의 Public 저장소**인지 확인한 뒤 Deploy를 누릅니다.
-3. 배포가 끝나면 화면에 나온 `https://…vercel.app` 주소를 방어전 1단계 카드에 붙여넣고 제출합니다. 저장소 주소나 설정 파일은 적지 않습니다.
+- `/`는 `/api/notes`를 호출해 Supabase의 가상 메모를 표시합니다.
+- `/api/notes`는 `public.notes`에서 `title`·`content`만 최대 네 건 읽습니다. API는 의도적으로 인증 없이 호출 가능하며, 누구나 네 메모를 읽을 수 있습니다. 2단계 과제의 의도된 취약점입니다.
+- 빌드는 `public/data.json`을 만들지 않으며, 이전 로컬 빌드에서 남은 파일도 제거합니다. Vercel의 정적 산출물 경로는 기존처럼 `public`입니다.
+- Vercel 배포 빌드는 배포 식별 정보를 `public/aleph.json`에 기록합니다. 실제 Vercel 배포에서만 이 파일의 제공 여부를 확인할 수 있습니다.
+- Vercel 응답에는 `X-Content-Type-Options: nosniff` 헤더를 설정합니다.
+- `sb_secret_` 형식 키는 서버 SDK의 PostgREST 요청에서 `apikey` 헤더로만 전달하고 `Authorization` Bearer에는 싣지 않습니다.
 
-배포가 끝나면 `/`에서 점령된 가상 자료실을 볼 수 있습니다. `/data.json`에는 같은 가상 메모가 공개됩니다. 이 공개 상태를 확인하는 것이 1단계의 출발점입니다. 1단계 접수와 심판 판정은 포털에서 확인합니다.
+로컬 정적 빌드는 `npm run build -- --local`로 확인할 수 있습니다. 함수 로컬 실행에는 Vercel 환경과 다음 서버 환경변수가 필요합니다. 이 명령은 실제 배포나 `/aleph.json` 제공 여부를 증명하지 않습니다.
 
-## 시작 틀의 자동 처리
+## Supabase와 환경변수
 
-`vercel.json`은 정적 결과물 `public`을 배포합니다. 빌드 명령 `npm run build`는 Vercel이 제공하는 GitHub 저장소 소유자·이름, 커밋 SHA, 배포 URL을 검증하고 `public/aleph.json`을 생성합니다. 이 값이 없으면 빌드가 실패하므로, 성공한 것처럼 빈 주소를 내보내지 않습니다. `aleph.json`의 내용만으로 저장소 소유권이나 방어 성공을 인정하지 않습니다. 심판이 공개 저장소의 실제 커밋과 배포된 자료를 따로 대조해야 합니다.
+- Supabase의 `public.notes` 테이블과 네 건의 가상 메모는 설정되어 있다고 전달받았습니다. 전달된 검증값은 RLS 활성화, `anon`/`authenticated` SELECT 거부, `service_role` SELECT 허용, 정책 0건, COUNT 4입니다. 이 저장소에서 원격 DB에 재접속해 검증한 것은 아닙니다.
+- Vercel Dashboard의 프로젝트 **Settings → Environment Variables**에서 `SUPABASE_URL`과 `SUPABASE_SECRET_KEY`를 **서버 런타임 환경변수**로 설정한 뒤 재배포합니다. 키 값은 브라우저나 Git에 넣지 마세요.
+- 함수는 GET만 허용하고, 설정 누락이나 DB 오류에는 상세 내부 정보를 반환하지 않고 `503 NOTES_UNAVAILABLE`을 반환합니다. 응답은 `Cache-Control: no-store`입니다.
 
-`aleph.config.json`의 `repoUrl`과 `publicAppUrl`은 이전 제출 묶음 방식의 자리표시자입니다. 1단계에서는 학생이 편집하지 않습니다. 2단계 이후 코딩 도구가 필요한 설정과 보호 기능을 단계별로 작성합니다. `npm run bundle`과 `bundle-notes.json`도 1단계의 세 걸음에는 포함되지 않습니다.
+`owner_id`는 UUID 컬럼이며 `auth.users` 외래키가 없습니다. Supabase의 RLS와 권한 제한은 유지됩니다. API의 서버 전용 `SUPABASE_SECRET_KEY`만 해당 제한을 우회해 조회합니다.
 
-로컬에서 가상 화면만 확인할 때는 `npm run build -- --local`을 사용합니다. 로컬 실행은 Vercel 배포나 심판 접수를 증명하지 않습니다. 저장소의 `src/attack-check.mjs`는 실제 배포가 된 뒤 `/data.json`을 비로그인으로 요청해 공개 가상 메모의 확인 표시를 읽습니다.
+## 다음 단계와 확인 사항
 
-## 다음 단계의 코딩 도구에 전달할 규칙
+- 다음 단계에서 로그인·인증을 추가하고, 공개 API의 무인증 조회를 제거해야 합니다.
+- 실제 배포 후 아래 검사를 실행합니다. `/data.json`은 404여야 하고, `/aleph.json`은 JSON이어야 하며, 헤더에는 `nosniff`가 있어야 하고, API의 `notes` 개수는 4여야 합니다.
 
-[AGENTS.md](AGENTS.md)를 먼저 읽히고 한 번에 한 제작 단위만 요청하세요. 2단계부터는 자료 보호를 구현할 때 `public/data.json`을 복사하는 1단계 빌드 흐름도 함께 바꿔야 합니다. 3단계 이후의 로그인, 허용 경로, 5단계의 원본 API 주소, 6단계 이후 정책 규칙은 해당 단계 원고와 계약에 맞춰 추가합니다. 비밀번호·토큰·서버 전용 키·실제 학생 기록을 코드, Git, 제출 묶음에 넣지 않습니다.
+```sh
+APP_URL='https://YOUR_APP.vercel.app'
+curl -sS -o /dev/null -w '%{http_code}\n' "$APP_URL/data.json"
+curl -fsS "$APP_URL/aleph.json"
+curl -fsSI "$APP_URL/" | grep -i '^x-content-type-options:'
+curl -fsS "$APP_URL/api/notes"
+```
 
-`src/decider.mjs`와 `src/detect.mjs`의 로컬 시험은 반 엔진이나 운영 심판의 결과가 아닙니다. 1단계 이후 제출 묶음 계약 `aleph.defense.submission.v2`는 `scripts/bundle.mjs`에 남아 있으며, 코딩 도구가 해당 단계의 최신 배포 주소와 Git 원격을 맞춘 뒤 사용합니다.
+- `npm run bundle`은 커밋되지 않은 변경, 자리표시자 배포 설정, 실제 공격 점검 응답이 있으면 통과하지 않습니다. 유효한 설정과 배포를 갖춘 뒤 깨끗한 작업 트리에서 실행합니다.
+
+## 공개 데이터 검사
+
+이전 `data.json`에서 네 메모의 제목·본문 각각을 가져와 아래 검색 명령의 자리표시자에 넣습니다. 명령에 메모 본문을 저장소에 적어 두지 마세요.
+
+```sh
+git grep -I -l -- '<기존 메모 제목 또는 본문>'
+git grep --cached -I -l -- '<기존 메모 제목 또는 본문>'
+git grep -I -l -- '<기존 메모 제목 또는 본문>' HEAD
+grep -R -I -l -- '<기존 메모 제목 또는 본문>' public/
+grep -R -I -l -E 'sb_secret_[A-Za-z0-9_-]{12,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|Bearer[[:space:]]+[A-Za-z0-9._~+/-]{16,}' api/ src/ scripts/ test/ package/ public/
+git check-ignore -v supabase/private-migration.sql
+```
+
+이번 검사에서 현재 작업 트리의 추적 소스와 로컬 공개 산출물에서는 네 메모의 제목·본문이 검색되지 않았고, `public/data.json`도 없습니다. 저장점 커밋 전 `origin/main`은 1단계 커밋이었고, `git grep origin/main`에서 기존 `data.json`, `public/data.json`에 본문이 남아 있는 것이 확인됐습니다. 이 저장점 커밋은 두 파일 삭제를 기록하지만 GitHub 최신 공개 브랜치에는 Push 전까지 반영되지 않습니다. 이전 공개 커밋과 기존 Vercel 배포 이력도 남아 있으며, 이번 검사로 그 이력이 삭제됐다고 주장하지 않습니다.
+
+저장점 준비 중 확인된 GitHub 원격은 `https://github.com/yxh750501-sys/choi-bujang-secret-vault`입니다. 2026-10-12 읽기 전용 Production 확인에서 현재 배포는 아직 1단계였습니다: `/data.json`은 200, `/aleph.json`은 step 1, `/api/notes`는 404였고 첫 화면 응답에서 `nosniff` 헤더가 확인되지 않았습니다. 이 작업에서는 배포하지 않았습니다. 이 저장점의 삭제를 커밋해도 GitHub 공개 브랜치는 Push 전까지 이전 커밋을 계속 가리킵니다.
+
+키 검사는 `sb_secret_` 실키 패턴, 개인키·토큰 패턴을 코드와 공개 빌드 산출물에서 검색합니다. 현재 브라우저 HTML과 공개 빌드에서 키 값은 발견되지 않았습니다. 서버 환경변수 이름만 코드에 있으며 키 값은 저장하지 않습니다. `src/decider.mjs`와 `src/detect.mjs`의 로컬 시험은 운영 심판의 판정이 아닙니다.

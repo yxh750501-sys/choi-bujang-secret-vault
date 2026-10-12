@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (config.step !== 1) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (config.step !== 2) throw new Error('2단계 공격 점검은 aleph.config.json의 step이 2여야 합니다.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -16,16 +16,24 @@ export async function runAttackChecks(config) {
   const response = await fetch(new URL('/data.json', app), {
     redirect: 'error', signal: AbortSignal.timeout(10000),
   });
-  let visible = false;
+  let safeEmptyResponse = response.status === 404 || response.status === 410;
+  let notesExposed = false;
   if (response.ok) {
     try {
       const data = await response.json();
-      visible = data?.sampleMarker === config.sampleMarker && Array.isArray(data.notes)
-        && data.notes.length > 0;
+      const keys = Object.keys(data);
+      notesExposed = Array.isArray(data?.notes) && data.notes.length > 0;
+      safeEmptyResponse = Array.isArray(data?.notes) && data.notes.length === 0
+        && keys.every(key => key === 'notes' || key === 'sampleMarker')
+        && (data.sampleMarker === undefined || data.sampleMarker === config.sampleMarker);
     } catch {
-      // A non-JSON response is a failed check, not a successful deployment.
+      // An unparseable success response cannot confirm that notes are private.
     }
   }
-  return [{ attackId: 'anonymous_note_read', expected: '비로그인 화면에서 가상 메모를 확인',
-    observed: visible ? '비로그인 요청에서 공개 가상 메모 확인 표시가 보임' : `비로그인 요청에서 확인 표시가 보이지 않음 (HTTP ${response.status})` }];
+  const observed = notesExposed
+    ? '비로그인 요청에서 공개 메모가 노출됨'
+    : safeEmptyResponse
+      ? `비로그인 요청에서 공개 메모가 없음 (HTTP ${response.status})`
+      : `비로그인 요청에서 안전한 빈 자료 응답을 확인하지 못함 (HTTP ${response.status})`;
+  return [{ attackId: 'anonymous_note_read', expected: '비로그인 요청에서 메모 0건 또는 404 응답', observed }];
 }
