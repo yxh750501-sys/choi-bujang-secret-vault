@@ -9,7 +9,7 @@
 - 빌드는 `public/data.json`을 만들지 않으며, 이전 로컬 빌드에서 남은 파일도 제거합니다. Vercel의 정적 산출물 경로는 기존처럼 `public`입니다.
 - Vercel 배포 빌드는 배포 식별 정보를 `public/aleph.json`에 기록합니다. 실제 Vercel 배포에서만 이 파일의 제공 여부를 확인할 수 있습니다.
 - Vercel 응답에는 `X-Content-Type-Options: nosniff` 헤더를 설정합니다.
-- `sb_secret_` 형식 키는 서버 SDK의 PostgREST 요청에서 `apikey` 헤더로만 전달하고 `Authorization` Bearer에는 싣지 않습니다.
+- 서버 API는 Supabase SDK의 표준 서버용 `createClient` 옵션(`autoRefreshToken: false`, `persistSession: false`)을 사용하며 요청 헤더를 별도 가공하지 않습니다. API 키와 인증 헤더는 Supabase 요청에만 쓰이고 응답·로그에는 포함하지 않습니다.
 
 로컬 정적 빌드는 `npm run build -- --local`로 확인할 수 있습니다. 함수 로컬 실행에는 Vercel 환경과 다음 서버 환경변수가 필요합니다. 이 명령은 실제 배포나 `/aleph.json` 제공 여부를 증명하지 않습니다.
 

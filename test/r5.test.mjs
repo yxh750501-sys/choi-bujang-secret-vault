@@ -79,25 +79,25 @@ test('second-stage attack check confirms anonymous data is empty or missing', as
   }
 });
 
-test('notes API reads four rows server-side without exposing its key', async () => {
+test('notes API uses the standard server client and reads four rows', async () => {
   const originalFetch = globalThis.fetch;
+  const originalConsoleError = console.error;
   const previousUrl = process.env.SUPABASE_URL;
   const previousKey = process.env.SUPABASE_SECRET_KEY;
+  const diagnostics = [];
   const rows = Array.from({ length: 4 }, (_, index) => ({
     title: `Example ${index + 1}`,
     content: 'Fictional test content',
   }));
   let requestedUrl;
   let requestKey;
-  let requestAuthorization;
   try {
     process.env.SUPABASE_URL = 'https://database.example.test';
     process.env.SUPABASE_SECRET_KEY = 'sb_secret_test';
+    console.error = (...args) => diagnostics.push(args);
     globalThis.fetch = async (url, options) => {
       requestedUrl = new URL(url);
-      const headers = new Headers(options.headers);
-      requestKey = headers.get('apikey');
-      requestAuthorization = headers.get('authorization');
+      requestKey = new Headers(options.headers).get('apikey');
       return new Response(JSON.stringify(rows), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -110,22 +110,44 @@ test('notes API reads four rows server-side without exposing its key', async () 
     assert.equal(requestedUrl.pathname, '/rest/v1/notes');
     assert.equal(requestedUrl.searchParams.get('limit'), '4');
     assert.equal(requestKey, 'sb_secret_test');
-    assert.equal(requestAuthorization, null);
     assert.deepEqual(success.body, { notes: rows });
     assert.doesNotMatch(JSON.stringify(success.body), /sb_secret_test/u);
 
     delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SECRET_KEY;
     const missingConfiguration = mockResponse();
     await notesHandler({ method: 'GET' }, missingConfiguration.response);
     assert.equal(missingConfiguration.statusCode, 503);
     assert.deepEqual(missingConfiguration.body, { error: 'NOTES_UNAVAILABLE' });
-    process.env.SUPABASE_URL = 'https://database.example.test';
+    assert.deepEqual(diagnostics[0], ['notes_api_supabase_diagnostic', {
+      supabaseUrlPresent: false,
+      secretKeyPresent: false,
+      keyFormat: 'missing',
+      httpStatus: null,
+      errorCode: 'ENV_MISSING',
+    }]);
 
-    globalThis.fetch = async () => new Response('database details', { status: 500 });
+    process.env.SUPABASE_URL = 'https://database.example.test';
+    process.env.SUPABASE_SECRET_KEY = 'sb_secret_test';
+
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      code: '42501',
+      message: 'sensitive database message',
+      details: 'sensitive database details',
+      hint: 'sensitive database hint',
+    }), { status: 500, headers: { 'content-type': 'application/json' } });
     const failed = mockResponse();
     await notesHandler({ method: 'GET' }, failed.response);
     assert.equal(failed.statusCode, 503);
     assert.deepEqual(failed.body, { error: 'NOTES_UNAVAILABLE' });
+    assert.deepEqual(diagnostics[1], ['notes_api_supabase_diagnostic', {
+      supabaseUrlPresent: true,
+      secretKeyPresent: true,
+      keyFormat: 'sb_secret',
+      httpStatus: 500,
+      errorCode: '42501',
+    }]);
+    assert.doesNotMatch(JSON.stringify(diagnostics), /sb_secret_test|sensitive database/u);
 
     const rejected = mockResponse();
     await notesHandler({ method: 'POST' }, rejected.response);
@@ -133,6 +155,7 @@ test('notes API reads four rows server-side without exposing its key', async () 
     assert.equal(rejected.headers.get('allow'), 'GET');
   } finally {
     globalThis.fetch = originalFetch;
+    console.error = originalConsoleError;
     if (previousUrl === undefined) delete process.env.SUPABASE_URL;
     else process.env.SUPABASE_URL = previousUrl;
     if (previousKey === undefined) delete process.env.SUPABASE_SECRET_KEY;
