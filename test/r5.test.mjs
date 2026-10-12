@@ -8,7 +8,7 @@ import { createAuthController, createAuthorizationHeader } from '../src/auth-con
 import { createLoginVerifier } from '../src/verify-login.mjs';
 
 const config = {
-  step: 4,
+  step: 5,
   judgeIssuer: 'https://aleph-judge-production.up.railway.app/defense/judge',
   sampleMarker: 'SAMPLE_NOTE_1',
   publicAppUrl: 'https://student-defense.vercel.app',
@@ -112,7 +112,7 @@ function mockSupabaseAuth({ initialSession = null, signInError = null } = {}) {
 test('build identity uses Vercel Git and deployment metadata', () => {
   assert.deepEqual(deploymentIdentity(env, config), {
     schema: 'aleph.defense.deployment.v1',
-    step: 4,
+    step: 5,
     repoUrl: 'https://github.com/student-a/aleph-defense',
     commit: 'a'.repeat(40),
     publicAppUrl: 'https://student-defense-123.vercel.app',
@@ -121,9 +121,10 @@ test('build identity uses Vercel Git and deployment metadata', () => {
   });
   assert.throws(() => deploymentIdentity({ ...env, VERCEL_GIT_PROVIDER: undefined }, config));
   assert.throws(() => deploymentIdentity({ ...env, VERCEL_GIT_COMMIT_SHA: 'short' }, config));
+  assert.throws(() => deploymentIdentity(env, { ...config, step: 6 }));
 });
 
-test('fourth-stage attack check confirms anonymous data is private and API denial is JSON', async () => {
+test('fifth-stage attack check confirms anonymous data is private and API denial is JSON', async () => {
   const originalFetch = globalThis.fetch;
   let requestUrl;
   const requestedUrls = [];
@@ -626,18 +627,22 @@ test('auth controller signs in, restores a session, and signs out', async () => 
   assert.equal(await restored.getAccessToken(), null);
 });
 
-test('CRUD UI, server-only database privileges, and stage-four routes are configured', async () => {
+test('CRUD UI, server-only database privileges, and stage-five routes are configured', async () => {
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   const browserModule = await readFile(new URL('../src/auth-browser.mjs', import.meta.url), 'utf8');
   const browserController = await readFile(new URL('../src/auth-controller.mjs', import.meta.url), 'utf8');
   const itemRoute = await readFile(new URL('../api/notes/[id].js', import.meta.url), 'utf8');
   const configFile = JSON.parse(await readFile(new URL('../aleph.config.json', import.meta.url), 'utf8'));
   const schema = await readFile(new URL('../supabase/schema.sql', import.meta.url), 'utf8');
+  const verifySql = await readFile(new URL('../supabase/verify.sql', import.meta.url), 'utf8');
   const buildScript = await readFile(new URL('../scripts/build-public.mjs', import.meta.url), 'utf8');
   const vercelConfig = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url), 'utf8'));
-  assert.equal(configFile.step, 4);
-  assert.match(buildScript, /config\.step !== 4/u);
-  assert.match(buildScript, /aleph\.config\.json의 step이 4이어야 합니다/u);
+  assert.equal(configFile.step, 5);
+  assert.equal(configFile.originalApiUrl, 'https://yweroshtkwjziprmgxcx.supabase.co/rest/v1/notes');
+  assert.equal(new URL(configFile.originalApiUrl).origin, new URL(configFile.identityProvider.issuer).origin);
+  assert.equal(new URL(configFile.originalApiUrl).search, '');
+  assert.match(buildScript, /!\[4, 5\]\.includes\(config\.step\)/u);
+  assert.match(buildScript, /aleph\.config\.json의 step이 4 또는 5이어야 합니다/u);
   assert.match(buildScript, /공개 data\.json을 생성하지 않았습니다/u);
   assert.match(buildScript, /resolve\(root, 'public', 'aleph\.json'\)/u);
   assert.deepEqual(configFile.allowedRoutes, [
@@ -647,15 +652,26 @@ test('CRUD UI, server-only database privileges, and stage-four routes are config
     'PUT /api/notes/:id',
     'DELETE /api/notes/:id',
   ]);
+  assert.equal(deploymentIdentity(env, config).step, 5);
   assert.equal(configFile.identityProvider.audience, 'authenticated');
   assert.match(html, /id="note-form"/u);
   assert.match(html, /id="new-note"/u);
   assert.match(html, /id="delete-note"/u);
   assert.match(browserModule, /Authorization:/u);
+  assert.doesNotMatch(`${browserModule}\n${browserController}\n${html}`, /\.from\s*\(\s*['"]notes['"]\s*\)|\/rest\/v1\/notes/u);
+  assert.match(browserModule, /apiRequest\('\/api\/notes'\)/u);
+  assert.ok(browserModule.includes('apiRequest(`/api/notes/${encodeURIComponent(id)}`)'));
   assert.match(browserModule, /method: editingId \? 'PUT' : 'POST'/u);
   assert.match(browserModule, /method: 'DELETE'/u);
   assert.match(browserModule, /window\.confirm/u);
+  assert.match(schema, /revoke all privileges on table public\.notes from public, anon, authenticated;/u);
   assert.match(schema, /grant select, insert, update, delete on table public\.notes to service_role;/u);
+  assert.doesNotMatch(schema, /grant select, insert, update, delete on table public\.notes to authenticated;/u);
+  assert.doesNotMatch(schema, /drop policy/iu);
+  assert.match(schema, /pg_policies/u);
+  assert.match(verifySql, /has_table_privilege/u);
+  assert.match(verifySql, /information_schema\.role_table_grants/u);
+  assert.match(verifySql, /'PUBLIC', 'anon', 'authenticated', 'service_role'/u);
   assert.match(itemRoute, /import notesHandler from '\.\.\/notes\.js'/u);
   assert.match(buildScript, /resolve\(root, 'public', 'aleph\.json'\)/u);
   assert.deepEqual(vercelConfig.headers[0].headers.find(header =>

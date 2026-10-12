@@ -1,6 +1,6 @@
 # BYTE BACK 방어전 R5
 
-자료실은 BYTE BACK 4단계 제작 2 기준으로 설정되어 있습니다. 브라우저 로그인·로그아웃, 서버 Supabase Access Token 검증 및 사용자별 메모 소유자 검사를 구현했고 `aleph.config.json`의 `step`은 4입니다. Production은 별도로 검증해야 합니다. 실제 개인정보, 비밀번호, 토큰, 서버 전용 키를 저장소에 넣지 마세요.
+자료실은 BYTE BACK 5단계 제작 2 기준으로 설정되어 있습니다. 브라우저 로그인·로그아웃, 서버 Supabase Access Token 검증 및 사용자별 메모 소유자 검사를 유지하며 메모 접근은 Vercel 서버 API로 모읍니다. `aleph.config.json`의 `step`은 5이고 `originalApiUrl`은 원본 Supabase notes REST Data API를 가리킵니다. Production은 별도로 검증해야 합니다. 실제 개인정보, 비밀번호, 토큰, 서버 전용 키를 저장소에 넣지 마세요.
 
 ## 현재 동작
 
@@ -16,21 +16,23 @@
 
 ## Supabase와 환경변수
 
-- Supabase `public.notes`의 기존 가상 메모 4건은 A 소유, 새 가상 메모 1건은 B 소유로 설정했다고 전달받았습니다. 이 세션에서 원격 DB 상태를 직접 확인하지는 않았습니다. RLS와 GRANT/REVOKE 변경은 다음 제작에서 별도로 진행합니다.
-- [supabase/schema.sql](./supabase/schema.sql)은 `public.notes`에 한정해 RLS, 최소 GRANT 및 소유자별 SELECT/INSERT/UPDATE/DELETE 정책을 설정합니다. permissive 소유자 정책과 restrictive 소유자 가드를 함께 사용하므로, 이외의 기존 permissive 정책이 있어도 authenticated 사용자의 소유자 경계를 넘지 않습니다. 스크립트는 자신이 관리하는 이름의 정책만 재생성하며 그 밖의 정책과 테이블은 변경하지 않습니다. 기존 메모에 대한 SQL Editor 실행은 아직 하지 않았습니다. 적용 전 현재 정책·권한 및 A/B 소유자 분포를 조회·검토하세요.
+- Supabase `public.notes`에는 A 소유 가상 메모 4건과 B 소유 가상 메모 1건이 있다고 전달받았습니다. 이 세션에서는 원격 DB 상태를 직접 확인하거나 SQL을 실행하지 않았습니다.
+- [supabase/schema.sql](./supabase/schema.sql)은 `public.notes`에 한정해 RLS를 활성화하고 `PUBLIC`, `anon`, `authenticated`의 직접 테이블 권한을 회수하며 `service_role`에 CRUD 권한을 부여합니다. `authenticated`에게는 테이블 CRUD를 부여하지 않습니다. 기존 8개 소유자 정책은 삭제·수정하지 않고, 새 환경에서만 없는 정책을 생성합니다. 다른 테이블, `auth.users`, 메모 행·내용·소유자 정보는 변경하지 않습니다. SQL은 아직 운영 DB에 실행하지 않았습니다. 적용 전에 [supabase/verify.sql](./supabase/verify.sql)로 권한과 정책 수를 확인하고, 기존 메모와 소유자 정보가 보존되는지 별도로 확인하세요.
 - Vercel Dashboard의 프로젝트 **Settings → Environment Variables**에서 `SUPABASE_URL`과 `SUPABASE_SECRET_KEY`를 **서버 런타임 환경변수**로 설정한 뒤 재배포합니다. 키 값은 브라우저나 Git에 넣지 마세요.
 - 브라우저 Auth를 빌드하려면 `SUPABASE_URL`과 `SUPABASE_PUBLISHABLE_KEY`를 Vercel Production 빌드 환경에도 설정합니다. 실제 Publishable Key는 Supabase Dashboard의 **Project Settings → API Keys**에서 직접 확인하세요. 이 값은 공개되도록 설계된 키입니다.
 - Supabase Dashboard의 **Authentication → Providers → Email**에서 이메일 로그인을 활성화하고, 테스트용 가상 계정을 준비하세요. 이메일 확인 설정에 따라 먼저 확인 메일을 완료해야 로그인할 수 있습니다.
 - `aleph.config.json`의 issuer와 JWKS URL은 Supabase 프로젝트의 공개 OIDC discovery 문서와 JWKS endpoint에서 확인한 Auth 주소입니다. `audience`는 표준 Supabase Auth Access Token 값인 `authenticated`입니다. 검증 도우미는 비대칭 서명 검증과 Supabase Auth의 `getClaims` 경로를 사용합니다. 현재 확인된 프로젝트 JWKS는 ES256 공개 키를 제공하며, 실제 계정 토큰의 서명·claims 검증은 로그인 테스트 시 확인해야 합니다.
-- 함수는 메모 자료의 읽기·쓰기 모두 서버 전용 `SUPABASE_SECRET_KEY`로 수행합니다. `supabase/schema.sql`에는 `service_role`의 SELECT/INSERT/UPDATE/DELETE 권한이 포함됩니다. 기존 DB에 이 권한이 적용되지 않았다면 Supabase Dashboard의 **SQL Editor**에서 해당 grant를 적용해야 합니다. `anon`/`authenticated` 권한 회수와 RLS는 유지합니다.
+- 함수는 메모 자료의 읽기·쓰기 모두 서버 전용 `SUPABASE_SECRET_KEY`로 수행합니다. `service_role`은 RLS를 우회하므로 각 API 쿼리의 검증된 `identity.userId` 기반 `owner_id` 필터가 접근 경계이며 반드시 유지해야 합니다. `authenticated`의 DB 직접 권한을 제거해도 API의 JWT 검증과 서버 CRUD는 이 키·소유자 필터로 동작합니다.
 - 잘못된 입력은 JSON 400, 없는 메모는 JSON 404, DB/설정 오류는 내부 정보를 숨긴 JSON 503으로 처리합니다. 응답은 `Cache-Control: no-store`입니다.
 
 `owner_id`는 UUID 컬럼이며 `auth.users` 외래키가 없습니다. RLS는 `authenticated` 요청에서 `auth.uid()`와 `owner_id`를 비교합니다. 서버 API의 `SUPABASE_SECRET_KEY`/`service_role`은 RLS를 우회할 수 있으므로 각 API 쿼리의 소유자 필터도 반드시 유지해야 합니다. SQL Editor를 관리자 권한으로 사용한 결과만으로는 일반 `authenticated` 사용자의 RLS 제한을 입증할 수 없습니다.
 
-## 4단계 제작 2 확인 사항
+## 5단계 제작 2 확인 사항
 
 - 관련 테스트는 `npm run test:r5 && npm run test:package`로 실행합니다. 테스트는 두 사용자 데이터 분리, 교차 사용자 GET/PUT/DELETE의 404 및 변경 없음, 위조 `owner_id` 무시를 mock DB에서 확인합니다. 실제 Supabase 계정 CRUD와 Production 동작은 별도 확인 전까지 미검증입니다.
-- 배포 후 `/data.json`은 404, `/aleph.json`의 `step`은 4, 첫 화면은 `nosniff`, 무인증 API는 JSON 401, 각 로그인 계정은 자기 메모 CRUD 성공 및 타인 메모 접근 404여야 합니다.
+- 로컬 공개 빌드는 `npm run build -- --local`로 확인합니다. `public/data.json`을 만들지 않으며, 이전 파일이 있으면 제거합니다. `/aleph.json`은 실제 Vercel 빌드에서 실제 커밋 정보와 `step` 5를 기록합니다.
+- DB 권한 SQL은 운영 SQL Editor에서 검토 후 별도로 실행해야 합니다. `supabase/verify.sql`의 `has_table_privilege` 결과에서 anon/authenticated는 CRUD 모두 false, service_role은 모두 true여야 합니다. `information_schema.role_table_grants` 결과도 함께 확인하세요. 이 프로젝트에서는 아직 실행하지 않았습니다.
+- 배포 후 `/data.json`은 404, `/aleph.json`의 `step`은 5, 첫 화면은 `nosniff`, 무인증 API는 JSON 401, 각 로그인 계정은 자기 메모 CRUD 성공 및 타인 메모 접근 404여야 합니다.
 
 ```sh
 APP_URL='https://YOUR_APP.vercel.app'
@@ -40,13 +42,13 @@ curl -fsSI "$APP_URL/" | grep -i '^x-content-type-options:'
 curl -i "$APP_URL/api/notes"
 ```
 
-- API 접근제어는 서버용 `SUPABASE_SECRET_KEY`가 RLS를 우회하더라도 각 쿼리에 소유자 조건을 명시해 적용합니다. 이 단계에서는 RLS 정책과 GRANT/REVOKE를 변경하지 않습니다. 다음 제작에서 `auth.uid()` 기반 RLS를 추가할 때도 서버 쿼리 조건은 유지해야 합니다.
+- API 접근제어는 서버용 `SUPABASE_SECRET_KEY`가 RLS를 우회하더라도 각 쿼리에 소유자 조건을 명시해 적용합니다. 기존 8개 RLS 정책은 보존되며, 권한 회수 후에도 서버 측 소유자 조건을 대체하지 않습니다.
 - 수동 확인은 별도의 테스트 계정 A와 B로 로그인해 각자 목록에 자기 메모만 나오는지 확인한 뒤, 상대방 메모의 ID를 API 경로에 지정해 GET/PUT/DELETE가 모두 404이고 데이터가 유지되는지 확인합니다. 토큰과 실제 사용자 메모 본문은 명령 기록이나 저장소에 남기지 마세요.
 - `npm run bundle`은 커밋되지 않은 변경, 자리표시자 배포 설정, 실제 공격 점검 응답이 있으면 통과하지 않습니다. 유효한 설정과 배포를 갖춘 뒤 깨끗한 작업 트리에서 실행합니다.
 
 ## 공개 데이터 검사
 
-이전 `data.json`에서 네 메모의 제목·본문 각각을 가져와 아래 검색 명령의 자리표시자에 넣습니다. 명령에 메모 본문을 저장소에 적어 두지 마세요.
+이전 `data.json`에서 다섯 메모의 제목·본문 각각을 가져와 아래 검색 명령의 자리표시자에 넣습니다. 명령에 메모 본문을 저장소에 적어 두지 마세요.
 
 ```sh
 git grep -I -l -- '<기존 메모 제목 또는 본문>'
@@ -59,6 +61,6 @@ git check-ignore -v supabase/private-migration.sql
 
 이번 검사에서 현재 작업 트리의 추적 소스와 로컬 공개 산출물에서는 네 메모의 제목·본문이 검색되지 않았고, `public/data.json`도 없습니다. 저장점 커밋 전 `origin/main`은 1단계 커밋이었고, `git grep origin/main`에서 기존 `data.json`, `public/data.json`에 본문이 남아 있는 것이 확인됐습니다. 이 저장점 커밋은 두 파일 삭제를 기록하지만 GitHub 최신 공개 브랜치에는 Push 전까지 반영되지 않습니다. 이전 공개 커밋과 기존 Vercel 배포 이력도 남아 있으며, 이번 검사로 그 이력이 삭제됐다고 주장하지 않습니다.
 
-과거에 확인했던 Production은 2단계 상태였습니다. 이번 제작 3의 인증된 CRUD 기능과 DB 쓰기 권한은 로컬 코드 변경이며 Production 배포나 실제 계정으로 검증하지 않았습니다. 이전 공개 커밋과 배포 이력은 남아 있습니다.
+5단계 변경은 로컬 파일과 SQL 초안에만 반영했습니다. 운영 DB에는 SQL을 실행하지 않았고, Git 커밋·Push·Vercel 배포 및 실제 계정/Production 검증도 하지 않았습니다. 이전 공개 커밋과 배포 이력은 별도로 남아 있습니다.
 
 키 검사는 `sb_secret_` 실키 패턴, 개인키·토큰 패턴을 코드와 공개 빌드 산출물에서 검색합니다. 현재 브라우저 HTML과 공개 빌드에서 키 값은 발견되지 않았습니다. 서버 환경변수 이름만 코드에 있으며 키 값은 저장하지 않습니다. `src/decider.mjs`와 `src/detect.mjs`의 로컬 시험은 운영 심판의 판정이 아닙니다.
