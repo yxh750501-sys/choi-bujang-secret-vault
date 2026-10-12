@@ -16,46 +16,71 @@
     li { border: 1px solid #51667c; border-radius: 14px; padding: 17px 19px; background: #1a2a3d; }
     strong { display: block; font-size: 18px; margin-bottom: 5px; }
     li span { color: #bfd0e5; }
+    .auth-panel { margin: 24px 0; padding: 22px; border: 1px solid #51667c; border-radius: 8px; background: #1a2a3d; }
+    .auth-panel h2 { margin-top: 0; font-size: 21px; }
+    .auth-form { display: grid; gap: 14px; }
+    .auth-form label { display: grid; gap: 6px; color: #bfd0e5; }
+    .auth-form input { box-sizing: border-box; width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid #71849a; border-radius: 4px; background: #101a28; color: #ecf4ff; font: inherit; }
+    button { min-height: 44px; padding: 9px 14px; border: 1px solid #8ad8df; border-radius: 4px; background: #183b45; color: #ecf4ff; font: inherit; font-weight: 700; cursor: pointer; }
+    button:disabled, input:disabled { opacity: .6; cursor: not-allowed; }
+    #auth-status[data-kind="error"] { color: #ffb8c2; }
+    .account-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .account-row p { overflow-wrap: anywhere; }
+    .note-editor { display: grid; gap: 14px; margin-top: 20px; }
+    .note-editor label { display: grid; gap: 6px; color: #bfd0e5; }
+    .note-editor input, .note-editor textarea { box-sizing: border-box; width: 100%; padding: 10px 12px; border: 1px solid #71849a; border-radius: 4px; background: #101a28; color: #ecf4ff; font: inherit; }
+    .note-editor textarea { min-height: 140px; resize: vertical; }
+    .note-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    #notes li button { width: 100%; text-align: left; }
+    #notes-status[data-kind="error"] { color: #ffb8c2; }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
   <main>
-    <div class="eyebrow">BYTE BACK · 2단계 자료 보호</div>
+    <div class="eyebrow">BYTE BACK · 진짜 로그인</div>
     <h1>점령된 자료실</h1>
-    <p>자료실 메모</p>
-    <div class="notice">이 단계의 메모 API는 로그인 없이 호출할 수 있습니다.</div>
-    <ul id="notes" aria-live="polite"><li>자료를 불러오는 중입니다.</li></ul>
+    <div class="notice">로그인한 세션의 토큰을 서버에서 검증한 뒤 보호된 메모를 불러옵니다.</div>
+    <section id="login-panel" class="auth-panel" aria-labelledby="login-heading">
+      <h2 id="login-heading">로그인</h2>
+      <form id="login-form" class="auth-form">
+        <label for="login-email">이메일</label>
+        <input id="login-email" name="email" type="email" autocomplete="username" required>
+        <label for="login-password">비밀번호</label>
+        <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+        <button id="login-button" type="submit" disabled>로그인</button>
+      </form>
+    </section>
+    <section id="account-panel" class="auth-panel" aria-label="로그인 계정" hidden>
+      <div class="account-row">
+        <p id="account-email"></p>
+        <button id="logout-button" type="button" disabled>로그아웃</button>
+      </div>
+      <h2>자료실 메모</h2>
+      <p>메모를 선택해 내용을 확인하거나 새 메모를 작성할 수 있습니다.</p>
+      <div class="note-actions">
+        <button id="new-note" type="button" disabled>새 메모</button>
+        <button id="reload-notes" type="button" disabled>목록 새로고침</button>
+      </div>
+      <p id="notes-status" role="status" aria-live="polite">로그인하면 메모를 불러옵니다.</p>
+      <ul id="notes" aria-live="polite"></ul>
+      <form id="note-form" class="note-editor" hidden>
+        <h3 id="note-form-heading">새 메모</h3>
+        <label for="note-title">제목</label>
+        <input id="note-title" name="title" maxlength="200" required>
+        <label for="note-body">내용</label>
+        <textarea id="note-body" name="body" maxlength="20000" required></textarea>
+        <div class="note-actions">
+          <button id="save-note" type="submit" disabled>저장</button>
+          <button id="delete-note" type="button" disabled hidden>삭제</button>
+          <button id="cancel-edit" type="button" disabled>닫기</button>
+        </div>
+      </form>
+    </section>
+    <p id="auth-status" role="status" aria-live="polite">로그인 상태를 확인하는 중입니다.</p>
   </main>
-  <script type="module">
-    const list = document.querySelector('#notes');
-    try {
-      const response = await fetch('/api/notes', { cache: 'no-store' });
-      if (!response.ok) throw new Error('자료를 불러올 수 없습니다.');
-      const result = await response.json();
-      if (!Array.isArray(result.notes) || result.notes.some(note =>
-        typeof note.title !== 'string' || typeof note.content !== 'string')) {
-        throw new Error('자료 형식이 올바르지 않습니다.');
-      }
-      if (result.notes.length === 0) {
-        list.replaceChildren(Object.assign(document.createElement('li'), {
-          textContent: '표시할 자료가 없습니다.',
-        }));
-      } else {
-        list.replaceChildren(...result.notes.map(note => {
-          const item = document.createElement('li');
-          const title = document.createElement('strong');
-          const content = document.createElement('span');
-          title.textContent = note.title;
-          content.textContent = note.content;
-          item.append(title, content);
-          return item;
-        }));
-      }
-    } catch {
-      list.replaceChildren(Object.assign(document.createElement('li'), {
-        textContent: '자료를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.',
-      }));
-    }
-  </script>
+  <script src="/vendor/supabase.js"></script>
+  <script src="/supabase-config.js"></script>
+  <script type="module" src="/auth-browser.mjs"></script>
 </body>
 </html>

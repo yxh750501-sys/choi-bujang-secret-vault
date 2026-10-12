@@ -9,4 +9,4 @@ create table if not exists public.notes (
 alter table public.notes enable row level security;
 
 revoke all privileges on table public.notes from public, anon, authenticated;
-grant select on table public.notes to service_role;
+grant select, insert, update, delete on table public.notes to service_role;

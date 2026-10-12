@@ -5,3 +5,7 @@ bundle-notes.json
 node_modules/
 public/aleph.json
 /supabase/private-migration.sql
+/public/auth-browser.mjs
+/public/auth-controller.mjs
+/public/supabase-config.js
+/public/vendor/supabase.js
