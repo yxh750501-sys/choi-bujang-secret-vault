@@ -14,7 +14,8 @@ function validResponse(request, response, ruleIds) {
     && typeof response.reasonCode === 'string'
     && /^[a-z][a-z0-9_]{0,63}$/u.test(response.reasonCode)
     && Array.isArray(response.ruleIds) && response.ruleIds.length > 0
-    && response.ruleIds.every(id => ruleIds.includes(id));
+    && response.ruleIds.every(id => ruleIds.includes(id))
+    && ruleIds.includes('device_registered');
 }
 
 // Local practice only. The class engine and the server judge validate live requests separately.
@@ -25,25 +26,58 @@ export async function checkDecider({ decide, ruleIds }) {
   }
   const { normal, suspicious } = fixtureRequests();
   const checks = [
-    { name: '등록 기기의 정상 요청', request: normal, decision: 'allow' },
+    { name: '등록 기기의 정상 요청', request: normal, decision: 'allow', reasonCode: 'approved' },
     { name: '미등록 기기의 가상 요청', request: { ...normal, requestId: randomUUID(),
       deviceRegistered: false }, decision: 'deny', reasonCode: 'device_not_registered' },
+    { name: '등록 정보 누락', request: { ...normal, requestId: randomUUID(),
+      deviceRegistered: undefined }, decision: 'deny', reasonCode: 'device_not_registered' },
+    { name: '등록 정보 null', request: { ...normal, requestId: randomUUID(),
+      deviceRegistered: null }, decision: 'deny', reasonCode: 'device_not_registered' },
+    { name: '잘못된 등록 정보 타입', request: { ...normal, requestId: randomUUID(),
+      deviceRegistered: 'true' }, decision: 'deny', reasonCode: 'device_not_registered' },
   ];
   if (ruleIds.includes('step_up_required')) {
     checks.push(
       { name: '복합 이상 접속', request: suspicious, decision: 'step_up',
         reasonCode: 'step_up_required' },
+      { name: '추가 인증이 있어도 미등록 기기는 거부', request: { ...suspicious,
+        requestId: randomUUID(), deviceRegistered: false,
+        stepUp: { verified: true, authAgeSeconds: 60 } },
+      decision: 'deny', reasonCode: 'device_not_registered' },
       { name: '다시 확인한 복합 이상 접속', request: { ...suspicious,
         requestId: randomUUID(), stepUp: { verified: true, authAgeSeconds: 60 } },
-      decision: 'allow' },
+      decision: 'allow', reasonCode: 'approved' },
+      { name: '재인증 시각 0초', request: { ...suspicious, requestId: randomUUID(),
+        stepUp: { verified: true, authAgeSeconds: 0 } },
+      decision: 'allow', reasonCode: 'approved' },
+      { name: '재인증 시각 900초', request: { ...suspicious, requestId: randomUUID(),
+        stepUp: { verified: true, authAgeSeconds: 900 } },
+      decision: 'allow', reasonCode: 'approved' },
     );
+    for (const [name, authAgeSeconds] of [
+      ['null', null],
+      ['undefined', undefined],
+      ['NaN', Number.NaN],
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['문자열', '60'],
+      ['음수', -1],
+      ['900초 초과', 901],
+    ]) {
+      checks.push({
+        name: `잘못된 재인증 시각 ${name}`,
+        request: { ...suspicious, requestId: randomUUID(),
+          stepUp: { verified: true, authAgeSeconds } },
+        decision: 'step_up',
+        reasonCode: 'step_up_required',
+      });
+    }
   }
   const results = [];
   for (const item of checks) {
     const response = await decide(item.request);
     const valid = validResponse(item.request, response, ruleIds)
       && response.decision === item.decision
-      && (!item.reasonCode || response.reasonCode === item.reasonCode);
+      && response.reasonCode === item.reasonCode;
     results.push({ name: item.name, passed: valid });
   }
   return results;

@@ -1,6 +1,6 @@
-# BYTE BACK 방어전 R5
+# BYTE BACK 방어전 6단계
 
-자료실은 BYTE BACK 5단계 제작 2 기준으로 설정되어 있습니다. 브라우저 로그인·로그아웃, 서버 Supabase Access Token 검증 및 사용자별 메모 소유자 검사를 유지하며 메모 접근은 Vercel 서버 API로 모읍니다. `aleph.config.json`의 `step`은 5이고 `originalApiUrl`은 원본 Supabase notes REST Data API를 가리킵니다. Production은 별도로 검증해야 합니다. 실제 개인정보, 비밀번호, 토큰, 서버 전용 키를 저장소에 넣지 마세요.
+자료실은 BYTE BACK 5단계 제작 2의 인증·소유권 보호를 유지하고 6단계 등록 기기 접근제어 판정기를 추가했습니다. 메모 접근은 Vercel 서버 API로 모으며 `aleph.config.json`의 `step`은 6입니다. `originalApiUrl`은 원본 Supabase notes REST Data API를 가리킵니다. Production은 별도로 검증해야 합니다. 실제 개인정보, 비밀번호, 토큰, 서버 전용 키를 저장소에 넣지 마세요.
 
 ## 현재 동작
 
@@ -45,6 +45,14 @@ curl -i "$APP_URL/api/notes"
 - API 접근제어는 서버용 `SUPABASE_SECRET_KEY`가 RLS를 우회하더라도 각 쿼리에 소유자 조건을 명시해 적용합니다. 기존 8개 RLS 정책은 보존되며, 권한 회수 후에도 서버 측 소유자 조건을 대체하지 않습니다.
 - 수동 확인은 별도의 테스트 계정 A와 B로 로그인해 각자 목록에 자기 메모만 나오는지 확인한 뒤, 상대방 메모의 ID를 API 경로에 지정해 GET/PUT/DELETE가 모두 404이고 데이터가 유지되는지 확인합니다. 토큰과 실제 사용자 메모 본문은 명령 기록이나 저장소에 남기지 마세요.
 - `npm run bundle`은 커밋되지 않은 변경, 자리표시자 배포 설정, 실제 공격 점검 응답이 있으면 통과하지 않습니다. 유효한 설정과 배포를 갖춘 뒤 깨끗한 작업 트리에서 실행합니다.
+
+## 6단계 등록 기기 접근제어
+
+- `src/decider.mjs`의 `device_registered` 규칙은 요청의 `deviceRegistered`가 정확히 `true`일 때만 기기 등록 조건을 통과시킵니다. `false`, 누락, `null` 또는 다른 타입은 `deny`와 `device_not_registered`로 거부합니다.
+- 정상 등록 기기 요청은 기존 요청 검증을 전제로 `allow`됩니다. 계약상 의심 신호가 있고 유효한 추가 인증이 없으면 `step_up_required`를 반환합니다. `stepUp.verified === true`는 `authAgeSeconds`가 숫자 정수 0~900일 때만 추가 인증 완료로 인정됩니다. 이 판정기는 계약에 정의되지 않은 사용자·기기·역할 필드를 읽지 않습니다.
+- `npm run decider`는 가상 요청으로 등록 기기 허용, 미등록/잘못된 등록 정보 거부, 의심 신호와 추가 인증 조건을 연습합니다. `npm run decider:test`도 같은 검사를 실행합니다. 이는 로컬 가상 연습이며 실제 심판 판정이 아닙니다.
+- `aleph.config.json`의 `step`은 6입니다. 별도 프로그램, 인증서 또는 개인키 설치가 필요하지 않습니다. 기존 프로젝트 의존성으로 실행합니다.
+- 검증 명령: `npm run decider`. 등록 기기의 정상 요청은 `allow`, 미등록 기기와 등록 정보 누락은 `deny`/`device_not_registered`여야 합니다. 의심 신호의 추가 인증 전 요청은 `step_up`, 계약 범위 안에서 추가 인증이 확인된 요청은 `allow`여야 합니다.
 
 ## 공개 데이터 검사
 

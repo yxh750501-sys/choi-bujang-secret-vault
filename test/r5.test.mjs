@@ -88,7 +88,8 @@ test('build identity uses Vercel Git and deployment metadata', () => {
   });
   assert.throws(() => deploymentIdentity({ ...env, VERCEL_GIT_PROVIDER: undefined }, config));
   assert.throws(() => deploymentIdentity({ ...env, VERCEL_GIT_COMMIT_SHA: 'short' }, config));
-  assert.throws(() => deploymentIdentity(env, { ...config, step: 6 }));
+  assert.equal(deploymentIdentity(env, { ...config, step: 6 }).step, 6);
+  assert.throws(() => deploymentIdentity(env, { ...config, step: 3 }));
 });
 
 test('fifth-stage attack check confirms anonymous data is private and API denial is JSON', async () => {
@@ -647,12 +648,13 @@ test('CRUD UI, server-only database privileges, and stage-five routes are config
   const verifySql = await readFile(new URL('../supabase/verify.sql', import.meta.url), 'utf8');
   const buildScript = await readFile(new URL('../scripts/build-public.mjs', import.meta.url), 'utf8');
   const vercelConfig = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url), 'utf8'));
-  assert.equal(configFile.step, 5);
+  assert.ok(configFile.step >= 5, '5단계 이상의 인증 구성이 유지되어야 합니다');
+  assert.ok(configFile.step >= 6, '현재 자료실 설정은 6단계 이상이어야 합니다');
   assert.equal(configFile.originalApiUrl, 'https://yweroshtkwjziprmgxcx.supabase.co/rest/v1/notes');
   assert.equal(new URL(configFile.originalApiUrl).origin, new URL(configFile.identityProvider.issuer).origin);
   assert.equal(new URL(configFile.originalApiUrl).search, '');
-  assert.match(buildScript, /!\[4, 5\]\.includes\(config\.step\)/u);
-  assert.match(buildScript, /aleph\.config\.json의 step이 4 또는 5이어야 합니다/u);
+  assert.match(buildScript, /!\[4, 5, 6\]\.includes\(config\.step\)/u);
+  assert.match(buildScript, /aleph\.config\.json의 step이 4, 5 또는 6이어야 합니다/u);
   assert.match(buildScript, /공개 data\.json을 생성하지 않았습니다/u);
   assert.match(buildScript, /resolve\(root, 'public', 'aleph\.json'\)/u);
   assert.deepEqual(configFile.allowedRoutes, [
