@@ -47,7 +47,7 @@ function createFixture() {
     ['VERCEL', process.env.VERCEL],
   ]);
   process.env.SUPABASE_URL = 'https://database.example.test';
-  process.env.SUPABASE_SECRET_KEY = 'sb_secret_notes_cookie_test';
+  process.env.SUPABASE_SECRET_KEY = 'fixture-server-key-not-a-credential';
   process.env.APP_ORIGIN = 'https://vault.example.test';
   process.env.CSRF_SECRET = 'fake-csrf-secret-for-cookie-test-only-32-bytes';
   process.env.VERCEL = '1';
@@ -96,7 +96,7 @@ function createFixture() {
     const method = init.method ?? 'GET';
     const headers = new Headers(init.headers);
     databaseCalls.push({ method, url, headers });
-    assert.equal(headers.get('apikey'), 'sb_secret_notes_cookie_test');
+    assert.equal(headers.get('apikey'), 'fixture-server-key-not-a-credential');
     const id = url.searchParams.get('id')?.slice(3);
     const ownerId = url.searchParams.get('owner_id')?.slice(3);
     const objectMode = headers.get('accept')?.includes('vnd.pgrst.object+json');
