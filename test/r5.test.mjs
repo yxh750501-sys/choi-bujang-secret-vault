@@ -89,6 +89,7 @@ test('build identity uses Vercel Git and deployment metadata', () => {
   assert.throws(() => deploymentIdentity({ ...env, VERCEL_GIT_PROVIDER: undefined }, config));
   assert.throws(() => deploymentIdentity({ ...env, VERCEL_GIT_COMMIT_SHA: 'short' }, config));
   assert.equal(deploymentIdentity(env, { ...config, step: 6 }).step, 6);
+  assert.equal(deploymentIdentity(env, { ...config, step: 7 }).step, 7);
   assert.throws(() => deploymentIdentity(env, { ...config, step: 3 }));
 });
 
@@ -120,7 +121,7 @@ test('fifth-stage attack check confirms anonymous data is private and API denial
       }
       return dataResponse();
     };
-    const [result, apiResult] = await runAttackChecks(config);
+    const [result, apiResult] = await runAttackChecks({ ...config, step: 7 });
     assert.deepEqual(requestedUrls.slice(0, 2), [
       'https://student-defense.vercel.app/data.json',
       'https://student-defense.vercel.app/api/notes',
@@ -653,8 +654,8 @@ test('CRUD UI, server-only database privileges, and stage-five routes are config
   assert.equal(configFile.originalApiUrl, 'https://yweroshtkwjziprmgxcx.supabase.co/rest/v1/notes');
   assert.equal(new URL(configFile.originalApiUrl).origin, new URL(configFile.identityProvider.issuer).origin);
   assert.equal(new URL(configFile.originalApiUrl).search, '');
-  assert.match(buildScript, /!\[4, 5, 6\]\.includes\(config\.step\)/u);
-  assert.match(buildScript, /aleph\.config\.json의 step이 4, 5 또는 6이어야 합니다/u);
+  assert.match(buildScript, /!\[4, 5, 6, 7\]\.includes\(config\.step\)/u);
+  assert.match(buildScript, /aleph\.config\.json의 step이 4, 5, 6 또는 7이어야 합니다/u);
   assert.match(buildScript, /공개 data\.json을 생성하지 않았습니다/u);
   assert.match(buildScript, /resolve\(root, 'public', 'aleph\.json'\)/u);
   assert.deepEqual(configFile.allowedRoutes, [
