@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { isDeepStrictEqual } from 'node:util';
 
 const POLICY_SHA256 = '6b10ef3fee2879431384e551d1c2f4566845ea6931c5b9ee17327be228ec9008';
@@ -16,8 +17,35 @@ function fixtureDigest(fixture) {
   return sha256(JSON.stringify(fixture));
 }
 
+function parseBackup(contents, code) {
+  try {
+    return JSON.parse(contents);
+  } catch {
+    throw new Error(code);
+  }
+}
+
 function requireFixture(condition, code) {
   if (!condition) throw new Error(code);
+}
+
+export async function readTestBackups(read = readFile) {
+  const policyPath = new URL('../fixtures/stage10-policy.json', import.meta.url);
+  const notePath = new URL('../fixtures/stage10-note.json', import.meta.url);
+  let policyContents;
+  let noteContents;
+  try {
+    [policyContents, noteContents] = await Promise.all([
+      read(policyPath, 'utf8'),
+      read(notePath, 'utf8'),
+    ]);
+  } catch {
+    throw new Error('BACKUP_MISSING');
+  }
+  return {
+    policy: parseBackup(policyContents, 'POLICY_BACKUP_INVALID'),
+    memo: parseBackup(noteContents, 'NOTE_BACKUP_INVALID'),
+  };
 }
 
 export function verifyPolicyBackup(backup) {
@@ -70,14 +98,14 @@ export function restoreTestPolicy(state, backup, service = 'notes') {
   requireFixture(state && state.policies && Array.isArray(state.audit), 'RECOVERY_STATE_INVALID');
   const preview = previewTestPolicyRestore(state?.policies, backup, service);
   const policies = structuredClone(state.policies);
-    if (preview.changes.length) {
-      policies[service] ??= {};
-      for (const field of Object.keys(backup.policies[service])) {
-        policies[service][field] = structuredClone(backup.policies[service][field]);
-      }
+  if (preview.changes.length) {
+    policies[service] ??= {};
+    for (const field of Object.keys(backup.policies[service])) {
+      policies[service][field] = structuredClone(backup.policies[service][field]);
     }
-    requireFixture(Object.keys(backup.policies[service]).every(field =>
-      isDeepStrictEqual(policies[service][field], backup.policies[service][field])),
+  }
+  requireFixture(Object.keys(backup.policies[service]).every(field =>
+    isDeepStrictEqual(policies[service][field], backup.policies[service][field])),
     'POLICY_POST_RESTORE_VERIFICATION_FAILED');
   return {
     policies,
@@ -114,6 +142,7 @@ export function verifyNoteBackup(backup) {
     id: backup.note.id,
     ownerId: backup.note.ownerId,
     contentSha256: backup.note.contentSha256,
+    fixtureSha256: fixtureDigest(backup),
     historicalBackup: false,
   });
 }
@@ -125,24 +154,21 @@ export function restoreTestMemo(state, backup, requestedId) {
     'RECOVERY_STATE_INVALID');
   const existing = state.notes.filter(note => note.id === verified.id);
   requireFixture(existing.length <= 1, 'DUPLICATE_TARGET_NOTE');
-  if (existing.length) {
-    requireFixture(existing[0].ownerId === verified.ownerId
-      && existing[0].title === backup.note.title
-      && existing[0].contentSha256 === verified.contentSha256
-      && sha256(existing[0].body) === verified.contentSha256,
-    'EXISTING_TARGET_NOTE_CONFLICTS');
-  }
+  if (existing.length) requireFixture(existing[0].ownerId === verified.ownerId,
+    'EXISTING_TARGET_OWNER_CONFLICTS');
 
   const beforeOtherNotes = state.notes.filter(note => note.id !== verified.id);
+  const restoredNote = {
+    ...(existing[0] ?? {}),
+    id: verified.id,
+    ownerId: verified.ownerId,
+    title: backup.note.title,
+    body: backup.note.body,
+    contentSha256: verified.contentSha256,
+  };
   const notes = existing.length
-    ? structuredClone(state.notes)
-    : [...structuredClone(state.notes), {
-      id: verified.id,
-      ownerId: verified.ownerId,
-      title: backup.note.title,
-      body: backup.note.body,
-      contentSha256: verified.contentSha256,
-    }];
+    ? state.notes.map(note => note.id === verified.id ? restoredNote : structuredClone(note))
+    : [...structuredClone(state.notes), restoredNote];
   const restored = notes.find(note => note.id === verified.id);
   requireFixture(restored?.id === verified.id && restored.ownerId === verified.ownerId
     && restored.title === backup.note.title
@@ -158,8 +184,76 @@ export function restoreTestMemo(state, backup, requestedId) {
         id: verified.id,
         ownerId: verified.ownerId,
         contentSha256: verified.contentSha256,
-        outcome: existing.length ? 'already_safe' : 'restored',
+        outcome: existing.length
+          && existing[0].title === backup.note.title
+          && existing[0].contentSha256 === verified.contentSha256
+          && sha256(existing[0].body) === verified.contentSha256
+          ? 'already_safe'
+          : 'restored',
       },
     ],
+  };
+}
+
+export function createInitialTestRecoveryState() {
+  return {
+    policies: {
+      notes: {
+        ownerIsolation: false,
+        registeredDeviceRequired: false,
+        riskStepUpRequired: false,
+        resourceBoundary: 'all-notes',
+      },
+      announcements: { access: 'read-only', audit: true },
+      billing: { access: 'deny', audit: true },
+    },
+    notes: [{
+      id: '823e4567-e89b-42d3-a456-000000000001',
+      ownerId: '923e4567-e89b-42d3-a456-000000000001',
+      title: '가상 A 메모',
+      body: '인메모리 시험 자료',
+      contentSha256: sha256('인메모리 시험 자료'),
+    }],
+    audit: [{ action: 'test_fixture_initialized', sequence: 1 }],
+  };
+}
+
+export function getVerifiedBackups(backups) {
+  return {
+    policy: verifyPolicyBackup(backups?.policy),
+    memo: verifyNoteBackup(backups?.memo),
+  };
+}
+
+export function previewTestRecovery(state, backups, requestedId) {
+  const verified = getVerifiedBackups(backups);
+  requireFixture(requestedId === verified.memo.id, 'NOTE_ID_NOT_IN_BACKUP');
+  return {
+    policyVersion: verified.policy.version,
+    policySha256: verified.policy.sha256,
+    policyChanges: previewTestPolicyRestore(state.policies, backups.policy).changes,
+    memo: {
+      id: verified.memo.id,
+      ownerId: verified.memo.ownerId,
+      contentSha256: verified.memo.contentSha256,
+    },
+  };
+}
+
+export function restoreVerifiedTestRecovery(state, backups, requestedId) {
+  const preview = previewTestRecovery(state, backups, requestedId);
+  const policyResult = restoreTestPolicy(state, backups.policy);
+  const memoResult = restoreTestMemo({
+    ...state,
+    notes: state.notes,
+    audit: policyResult.audit,
+  }, backups.memo, requestedId);
+  return {
+    state: {
+      policies: policyResult.policies,
+      notes: memoResult.notes,
+      audit: memoResult.audit,
+    },
+    preview,
   };
 }
