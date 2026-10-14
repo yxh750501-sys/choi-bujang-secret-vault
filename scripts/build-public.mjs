@@ -10,8 +10,8 @@ const obsoleteSupabaseAssets = [
   resolve(publicDirectory, 'vendor', 'supabase.js'),
 ];
 const config = JSON.parse(await readFile(resolve(root, 'aleph.config.json'), 'utf8'));
-if (![4, 5, 6, 7, 8].includes(config.step)) {
-  throw new Error('4~8단계 빌드에는 aleph.config.json의 step이 4, 5, 6, 7 또는 8이어야 합니다.');
+if (![4, 5, 6, 7, 8, 9].includes(config.step)) {
+  throw new Error('4~9단계 빌드에는 aleph.config.json의 step이 4, 5, 6, 7, 8 또는 9이어야 합니다.');
 }
 await mkdir(resolve(root, 'public'), { recursive: true });
 await unlink(output).catch(error => {
