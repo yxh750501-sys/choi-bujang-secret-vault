@@ -27,6 +27,12 @@ const deviceStatusBadge = document.querySelector('#device-status');
 const deviceMessage = document.querySelector('#device-message');
 const deviceRequestButton = document.querySelector('#device-request-button');
 const deviceRevokeButton = document.querySelector('#device-revoke-button');
+const operationPanel = document.querySelector('#operation-panel');
+const operationMessage = document.querySelector('#operation-message');
+const operationSummary = document.querySelector('#operation-summary');
+const operationRefresh = document.querySelector('#operation-refresh');
+const verificationCounts = document.querySelector('#verification-counts');
+const verificationRows = document.querySelector('#verification-rows');
 
 let controller = null;
 let previousAuthenticated = false;
@@ -37,6 +43,73 @@ let requestInFlight = false;
 let deferredInstallPrompt = null;
 let installPromptSeen = false;
 let deviceState = { status: 'unregistered', approved: false, pending: false };
+
+function renderOperationReport(report) {
+  if (report?.schema !== 'byteback.operation.v1' || !Array.isArray(report.verification?.cases)) {
+    throw new Error('INVALID_OPERATION_REPORT');
+  }
+  const cases = report.verification.cases;
+  const pass = cases.filter(item => item.status === 'PASS').length;
+  const fail = cases.filter(item => item.status === 'FAIL').length;
+  const notRun = cases.filter(item => item.status === 'NOT_RUN').length;
+  if (report.verification.counts?.pass !== pass || report.verification.counts?.fail !== fail
+      || report.verification.counts?.notRun !== notRun) throw new Error('INVALID_OPERATION_COUNTS');
+  operationSummary.replaceChildren();
+  const summary = [
+    ['판정기 규칙', `${report.rules?.ids?.join(', ') || '확인 불가'} · 운영 판정 ${report.rules?.status || 'UNKNOWN'}`],
+    ['탐지 사건', `${report.detection?.status || 'UNKNOWN'} · ${report.detection?.source || '출처 없음'}`],
+    ['접속 회수', `${report.revocation?.status || 'UNKNOWN'} · ${report.revocation?.source || '출처 없음'}`],
+    ['복구 버전', `${report.recovery?.version || '확인 불가'} · ${report.recovery?.status || 'UNKNOWN'} (${report.recovery?.source || '출처 없음'})`],
+    ['현재 기기 승인', report.deviceApproval?.status || 'unknown'],
+  ];
+  for (const [label, value] of summary) {
+    const item = document.createElement('li');
+    const heading = document.createElement('strong');
+    const detail = document.createElement('span');
+    heading.textContent = label;
+    detail.textContent = value;
+    item.append(heading, detail);
+    operationSummary.append(item);
+  }
+  verificationCounts.textContent = `실측 PASS ${pass} · FAIL ${fail} · NOT_RUN ${notRun} · 기록 기준 커밋 ${report.evidenceCommit}`;
+  verificationRows.replaceChildren();
+  for (const item of cases) {
+    const row = document.createElement('tr');
+    const values = [
+      `${item.name} / ${item.stage ?? '공격 목록'}`,
+      item.expected,
+      item.actual ? `HTTP ${item.actual.httpStatus ?? '응답 없음'} ${item.actual.error ?? item.actual.action ?? ''} ${item.actual.policyVersion ?? ''} (${item.environment})` : '미실행',
+      item.requestId ? `${item.requestId} / ${item.checkedAt}` : '미실행',
+      item.status,
+    ];
+    for (const value of values) {
+      const cell = document.createElement('td');
+      cell.textContent = value;
+      row.append(cell);
+    }
+    verificationRows.append(row);
+  }
+  operationMessage.textContent = '서버에서 검증 기록과 현재 기기 상태를 확인했습니다. 운영 엔진 상태는 별도로 표시합니다.';
+}
+
+async function loadOperationReport() {
+  if (!controller?.state.authenticated) return;
+  const revision = controller.state.sessionRevision;
+  operationMessage.textContent = '검증 기록을 불러오는 중입니다.';
+  try {
+    const report = await controller.request('/api/operations', { method: 'GET' });
+    if (controller.state.authenticated && controller.state.sessionRevision === revision) {
+      renderOperationReport(report);
+    }
+  } catch {
+    if (controller.state.authenticated && controller.state.sessionRevision === revision) {
+      operationSummary.replaceChildren();
+      verificationRows.replaceChildren();
+      verificationCounts.textContent = '';
+      operationMessage.textContent = '서버 기록을 확인할 수 없습니다. 상태는 확인 불가입니다.';
+    }
+  }
+}
 
 function clearEditor() {
   selectedNoteId = null;
@@ -88,9 +161,14 @@ function render(state) {
   if (state.authenticated && state.sessionRevision !== previousSessionRevision && controller) {
     clearEditor();
     void initializeDeviceSession();
+    void loadOperationReport();
   }
   if (!state.authenticated && previousAuthenticated) clearNotes();
   if (!state.authenticated) {
+    operationSummary.replaceChildren();
+    verificationRows.replaceChildren();
+    verificationCounts.textContent = '';
+    operationMessage.textContent = '로그인 후 검증 기록을 확인합니다.';
     deviceState = { status: 'unregistered', approved: false, pending: false };
     deviceStatusBadge.dataset.state = 'unregistered';
     deviceStatusBadge.textContent = '미등록';
@@ -100,6 +178,7 @@ function render(state) {
     clearNotes();
   }
   previousAuthenticated = state.authenticated;
+  operationPanel.hidden = !state.authenticated;
   previousSessionRevision = state.sessionRevision;
   setBusy(requestInFlight);
 }
@@ -447,6 +526,8 @@ offlineRefreshButton.addEventListener('click', () => {
 deviceRequestButton.addEventListener('click', () => {
   void requestDeviceApproval();
 });
+
+operationRefresh.addEventListener('click', () => { void loadOperationReport(); });
 
 controller = createAuthController(render);
 render(controller.state);

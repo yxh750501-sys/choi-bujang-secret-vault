@@ -1,4 +1,5 @@
 import config from '../aleph.config.json' with { type: 'json' };
+import { operationReport } from '../src/operation-room.mjs';
 import {
   createSupabaseDeviceApprovalStore,
   hashDeviceReference,
@@ -10,6 +11,15 @@ import { createLoginVerifier } from '../src/verify-login.mjs';
 
 const BODY_LIMIT = 8192;
 const ALLOWED_ACTIONS = new Set(['request', 'revoke']);
+
+function operationView(request) {
+  if (request.query?.view === 'operation') return true;
+  try {
+    return new URL(request.url, 'https://local.invalid').pathname === '/api/operations';
+  } catch {
+    return false;
+  }
+}
 
 function jsonError(response, status, error) {
   response.setHeader('Cache-Control', 'no-store');
@@ -100,7 +110,10 @@ export function createDeviceHandler({
     }
 
     let deviceRef;
-    if (request.method === 'GET') {
+    if (request.method === 'GET' && operationView(request)) {
+      deviceRef = readDeviceReference(request, env);
+      if (!deviceRef) return response.status(200).json(operationReport('unregistered'));
+    } else if (request.method === 'GET') {
       try {
         deviceRef = issueDeviceReference(request, response, { env, nonceFactory });
       } catch {
@@ -117,6 +130,9 @@ export function createDeviceHandler({
       const deviceRefHash = hashDeviceReference(deviceRef);
       if (request.method === 'GET') {
         record = await store.get(identity.userId, deviceRefHash);
+        if (operationView(request)) {
+          return response.status(200).json(operationReport(record?.status ?? 'unregistered'));
+        }
         return response.status(200).json(statusResponse(record));
       }
       if (body.action === 'request') {
