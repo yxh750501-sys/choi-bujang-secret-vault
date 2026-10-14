@@ -1,0 +1,19 @@
+{
+  "schema": "byteback.test-note-backup.v1",
+  "version": "stage10-virtual-note-fixture-v1",
+  "provenance": {
+    "kind": "locally-generated-test-fixture",
+    "historicalBackup": false
+  },
+  "scope": {
+    "environment": "test-only",
+    "recordCount": 1
+  },
+  "note": {
+    "id": "623e4567-e89b-42d3-a456-000000000001",
+    "ownerId": "723e4567-e89b-42d3-a456-000000000001",
+    "title": "가상 복구 연습 메모",
+    "body": "로컬 복구 테스트 전용으로 만든 가상 메모입니다.",
+    "contentSha256": "a8acda6e2c79f23f50c6fcd7e333140e541cc802f7b1e20903d56489d59ec14d"
+  }
+}

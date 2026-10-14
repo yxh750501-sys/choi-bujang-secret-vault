@@ -1,0 +1,29 @@
+{
+  "schema": "byteback.test-policy-backup.v1",
+  "version": "stage10-safe-policy-fixture-v1",
+  "provenance": {
+    "kind": "locally-generated-test-fixture",
+    "basedOnCommit": "9dd2379666b36ea1dc3cc5ac021d56b46dae6a16",
+    "historicalBackup": false
+  },
+  "scope": {
+    "environment": "test-only",
+    "service": "notes"
+  },
+  "policies": {
+    "notes": {
+      "ownerIsolation": true,
+      "registeredDeviceRequired": true,
+      "riskStepUpRequired": true,
+      "resourceBoundary": "single-note"
+    },
+    "announcements": {
+      "access": "read-only",
+      "audit": true
+    },
+    "billing": {
+      "access": "deny",
+      "audit": true
+    }
+  }
+}
