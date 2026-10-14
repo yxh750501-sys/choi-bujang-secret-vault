@@ -1,74 +1,126 @@
+import { randomUUID } from 'node:crypto';
 import { RULE_IDS } from './decider.mjs';
-import records from './verification-records.json' with { type: 'json' };
+import fixture from '../test/fixtures/stage10-policy.json' with { type: 'json' };
 
-const safeStatuses = new Set(['PASS', 'FAIL', 'NOT_RUN']);
-const requestIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
-const deviceStatuses = new Set(['unregistered', 'pending', 'approved', 'rejected', 'revoked', 'expired']);
+// Only the three fixed, anonymous GET requests below are executed. The other
+// entries describe tests that need a real identity, engine event, or write.
+export const CHECKS = Object.freeze([
+  ['s01_public_shell', 1, 'normal', 'GET /', 'HTTP 200'],
+  ['s01_deployment', 1, 'normal', 'GET /aleph.json', 'HTTP 200, step 12 and current commit'],
+  ['s02_anonymous_note', 2, 'forbidden', 'GET /api/notes/:id without login', 'HTTP 401 or 403'],
+  ['s02_static_copy', 2, 'forbidden', 'GET /data.json', 'private notes absent'],
+  ['s03_login', 3, 'normal', 'POST /api/auth login', 'verified session'],
+  ['s03_anonymous_notes', 3, 'forbidden', 'GET /api/notes without login', 'HTTP 401 or 403'],
+  ['s03_logout', 3, 'normal', 'POST /api/auth logout', 'session cleared'],
+  ['s04_session', 4, 'normal', 'GET /api/auth with session', 'authenticated session'],
+  ['s04_csrf', 4, 'forbidden', 'POST /api/notes without CSRF', 'HTTP 403'],
+  ['s04_expired', 4, 'forbidden', 'GET /api/notes with expired session', 'HTTP 401'],
+  ['s04_origin', 4, 'forbidden', 'POST /api/notes with wrong Origin', 'HTTP 403'],
+  ['s05_own_list', 5, 'normal', 'GET /api/notes as owner', 'owner notes only'],
+  ['s05_own_read', 5, 'normal', 'GET /api/notes/:id as owner', 'owner note only'],
+  ['s05_cross_read', 5, 'forbidden', 'GET /api/notes/:id as other user', 'HTTP 404'],
+  ['s05_cross_write', 5, 'forbidden', 'PUT /api/notes/:id as other user', 'HTTP 404'],
+  ['s05_cross_delete', 5, 'forbidden', 'DELETE /api/notes/:id as other user', 'HTTP 404'],
+  ['s06_approved_device', 6, 'normal', 'GET /api/notes with approved device', 'owner access'],
+  ['s06_pending_device', 6, 'forbidden', 'GET /api/notes with pending device', 'access denied'],
+  ['s06_revoked_device', 6, 'forbidden', 'GET /api/notes with revoked device', 'access denied'],
+  ['s06_forged_device', 6, 'forbidden', 'GET /api/notes with forged device claim', 'access denied'],
+  ['s07_normal_decision', 7, 'normal', 'decide normal request', 'allow'],
+  ['s07_risk_step_up', 7, 'forbidden', 'decide composite risk', 'step_up'],
+  ['s07_unverified_step_up', 7, 'forbidden', 'decide unverified step-up', 'step_up'],
+  ['s08_note_route', 8, 'normal', 'GET /notes/:id', 'allow'],
+  ['s08_query', 8, 'forbidden', 'GET /notes/:id?query', 'deny'],
+  ['s08_write', 8, 'forbidden', 'PUT /notes/:id', 'deny'],
+  ['s08_prefix', 8, 'forbidden', 'GET /notes/..', 'deny'],
+  ['s08_unknown', 8, 'forbidden', 'GET /unknown', 'deny'],
+  ['s09_below_threshold', 9, 'normal', 'detect normal reads', 'observe'],
+  ['s09_over_threshold', 9, 'forbidden', 'detect excess reads', 'propose_revocation'],
+  ['s09_mixed_subjects', 9, 'normal', 'detect separate subjects', 'separate counts'],
+  ['s09_no_events', 9, 'normal', 'detect empty events', 'no revocation'],
+  ['s10_restore_preview', 10, 'normal', 'POST /api/restore preview', 'verified preview'],
+  ['s10_restore_apply', 10, 'normal', 'POST /api/restore restore', 'verified fixture only'],
+  ['s10_wrong_owner', 10, 'forbidden', 'POST /api/restore as other user', 'access denied'],
+  ['s10_missing_backup', 10, 'forbidden', 'POST /api/restore without backup', 'restore denied'],
+  ['s11_pwa_shell', 11, 'normal', 'GET /manifest.webmanifest', 'public manifest'],
+  ['s11_anonymous_device', 11, 'forbidden', 'GET /api/operations without login', 'HTTP 401'],
+  ['s11_admin_forbidden', 11, 'forbidden', 'POST /api/device-approval as student', 'approval denied'],
+  ['s11_offline_api', 11, 'forbidden', 'GET /api/notes offline', 'no protected cache'],
+  ['s11_approved_open', 11, 'normal', 'GET /api/operations on approved device', 'HTTP 200'],
+]);
 
-function measured(item) {
-  return requestIdPattern.test(item.requestId ?? '')
-    && typeof item.checkedAt === 'string' && Number.isFinite(Date.parse(item.checkedAt))
-    && item.environment === 'local-handler'
-    && Number.isInteger(item.actual?.httpStatus)
-    && item.actual.httpStatus >= 100 && item.actual.httpStatus <= 599;
+const probes = Object.freeze([
+  { id: 's01_deployment', path: '/aleph.json' },
+  { id: 's02_anonymous_note', path: '/api/notes/00000000-0000-4000-8000-000000000001' },
+  { id: 's03_anonymous_notes', path: '/api/notes' },
+]);
+
+function publicBase(value) {
+  const url = new URL(value);
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash
+      || url.pathname !== '/' || url.hostname.endsWith('.example')) {
+    throw new Error('INVALID_PUBLIC_APP_URL');
+  }
+  return url;
 }
 
-function safeActual(item) {
-  if (!measured(item)) return null;
-  const value = item.actual;
-  return {
-    httpStatus: value.httpStatus,
-    error: typeof value.error === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/u.test(value.error)
-      ? value.error : null,
-    ...(value.action === 'preview' ? { action: 'preview' } : {}),
-    ...(typeof value.policyVersion === 'string' && /^[a-z0-9-]{1,80}$/u.test(value.policyVersion)
-      ? { policyVersion: value.policyVersion } : {}),
-    ...(['not_run', 'pass', 'fail', 'partial'].includes(value.retests)
-      ? { retests: value.retests } : {}),
-  };
-}
-
-export function operationReport(deviceStatus, evidence = records) {
-  const cases = evidence.cases.map(item => ({
-    id: item.id,
-    stage: item.stage,
-    kind: item.kind,
-    name: item.name,
-    request: item.request,
-    expected: item.expected,
-    actual: safeActual(item),
-    requestId: measured(item) ? item.requestId : null,
-    checkedAt: measured(item) ? item.checkedAt : null,
-    environment: measured(item) ? item.environment : null,
-    status: measured(item) && safeStatuses.has(item.status) ? item.status : 'NOT_RUN',
+export async function operationReport({ config, deviceStatus, fetchImpl = fetch,
+  now = () => new Date(), requestIdFactory = randomUUID,
+  deployedCommit = null } = {}) {
+  const checks = CHECKS.map(([id, stage, kind, request, expected]) => ({
+    id, stage, kind, request, expected, actual: null, requestId: null,
+    requestIdSource: null, checkedAt: null, status: 'NOT_RUN',
   }));
+  const base = publicBase(config.publicAppUrl);
+  for (const probe of probes) {
+    const id = requestIdFactory();
+    let response;
+    try {
+      response = await fetchImpl(new URL(probe.path, base), {
+        method: 'GET', redirect: 'error', credentials: 'omit',
+        headers: { 'X-Request-Id': id }, signal: AbortSignal.timeout(5000),
+      });
+    } catch {
+      continue; // No response evidence means NOT_RUN, including timeouts.
+    }
+    if (!Number.isInteger(response?.status) || response.status < 100 || response.status > 599) continue;
+    let matched = response.status === 401 || response.status === 403;
+    const actual = { httpStatus: response.status, body: 'response body redacted' };
+    if (probe.id === 's01_deployment') {
+      matched = false;
+      try {
+        const data = await response.json();
+        const commit = deployedCommit ?? null;
+        matched = response.status === 200 && data?.step === 12
+          && (!commit || data.commit === commit);
+        actual.step = Number.isInteger(data?.step) ? data.step : null;
+        actual.commitMatched = commit ? data?.commit === commit : null;
+      } catch {
+        actual.step = null;
+        actual.commitMatched = null;
+      }
+    }
+    const check = checks.find(item => item.id === probe.id);
+    check.actual = actual;
+    check.requestId = id;
+    check.requestIdSource = 'operations-correlation-id';
+    check.checkedAt = now().toISOString();
+    check.status = matched ? 'PASS' : 'FAIL';
+  }
   const counts = {
-    pass: cases.filter(item => item.status === 'PASS').length,
-    fail: cases.filter(item => item.status === 'FAIL').length,
-    notRun: cases.filter(item => item.status === 'NOT_RUN').length,
+    pass: checks.filter(item => item.status === 'PASS').length,
+    fail: checks.filter(item => item.status === 'FAIL').length,
+    notRun: checks.filter(item => item.status === 'NOT_RUN').length,
   };
-  const recoveryPreview = cases.find(item => item.id === 's10_restore_preview');
   return {
-    schema: 'byteback.operation.v1',
-    evidenceCommit: evidence.commit,
-    provenance: {
-      studentImplementation: 'BYTE BACK 학생 구현',
-      providedEngine: 'ALEPH SDP 엔진',
-      localEvidence: 'local-handler',
-    },
-    sources: {
-      student: ['src/decider.mjs', 'src/detect.mjs', 'api/notes.js', 'public/manifest.webmanifest'],
-      engine: 'ALEPH SDP 엔진',
-    },
-    rules: { ids: [...RULE_IDS], status: 'NOT_RUN', source: 'production-engine-unverified' },
-    detection: { status: 'NOT_RUN', source: 'production-events-unavailable' },
-    revocation: { status: 'UNKNOWN', source: 'production-engine-unavailable' },
-    recovery: {
-      version: recoveryPreview?.actual?.policyVersion ?? null,
-      status: recoveryPreview?.status ?? 'NOT_RUN',
-      source: 'local-handler-fixture',
-    },
-    deviceApproval: { status: deviceStatuses.has(deviceStatus) ? deviceStatus : 'unknown' },
-    verification: { counts, cases },
+    schema: 'aleph.operations.v1', checkedCommit: deployedCommit,
+    generatedAt: now().toISOString(),
+    sources: { student: ['src/decider.mjs', 'src/detect.mjs', 'api/notes.js',
+      'public/manifest.webmanifest', 'src/operation-room.mjs'], engine: 'ALEPH SDP 엔진' },
+    policy: { ruleIds: [...RULE_IDS], count: RULE_IDS.length, status: 'NOT_RUN' },
+    detection: { status: 'NOT_RUN', eventCount: null },
+    revocation: { status: 'NOT_RUN', completed: null },
+    recovery: { version: fixture.version, status: 'NOT_RUN', source: 'student-fixture' },
+    deviceApproval: { status: deviceStatus },
+    verification: { counts, cases: checks },
   };
 }

@@ -1,27 +1,13 @@
-// The isolated judge does not provide request evidence for these checks.
-// Never return tokens, private keys, real names, or note bodies.
+// 제출 격리 환경에서 요청 기록을 확인할 수 없는 점검은 성공을 계산하지 않고 미실행으로 남깁니다.
 export async function runAttackChecks(config) {
-  if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(config.step)) throw new Error('2~12단계 공격 점검은 aleph.config.json의 step이 2~12이어야 합니다.');
-  let app;
-  try {
-    app = new URL(config.publicAppUrl);
-  } catch {
-    throw new Error('aleph.config.json의 실제 배포 주소를 먼저 넣어 주세요.');
-  }
+  const app = new URL(config.publicAppUrl);
   if (app.protocol !== 'https:' || app.username || app.password || app.search || app.hash
       || app.pathname !== '/' || app.hostname.endsWith('.example')) {
-    throw new Error('aleph.config.json의 실제 배포 주소를 먼저 넣어 주세요.');
+    throw new Error('실제 배포 주소가 필요합니다.');
   }
-  if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
-  const checks = [{
-    attackId: 'anonymous_note_read',
-    expected: '비로그인 요청에서 메모 0건 또는 404 응답',
-    observed: 'not_run',
-  }];
-  if (config.step >= 3) checks.push({
-    attackId: 'anonymous_notes_api',
-    expected: '비로그인 API 요청에서 메모 없이 구조화된 JSON 401 또는 403',
-    observed: 'not_run',
-  });
-  return checks;
+  return [
+    { attackId: 'static_note_read', expected: '정적 메모 0건', observed: 'not_run' },
+    { attackId: 'anonymous_list', expected: '무로그인 목록 조회 401 또는 403', observed: 'not_run' },
+    { attackId: 'anonymous_get', expected: '무로그인 개별 조회 401 또는 403', observed: 'not_run' },
+  ];
 }

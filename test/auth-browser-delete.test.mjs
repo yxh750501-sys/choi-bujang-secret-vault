@@ -137,11 +137,15 @@ test('saved note selection enables delete; successful and failed deletion preser
       return jsonResponse({ status: 'approved', approved: true, pending: false });
     }
     if (path === '/api/operations') {
-      return jsonResponse({ schema: 'byteback.operation.v1', evidenceCommit: 'fixture',
-        rules: { ids: [], status: 'NOT_RUN' }, detection: { status: 'NOT_RUN' },
-        revocation: { status: 'UNKNOWN' }, recovery: { status: 'NOT_RUN' },
+      return jsonResponse({ schema: 'aleph.operations.v1', checkedCommit: 'fixture',
+        policy: { ruleIds: [], count: 0, status: 'NOT_RUN' }, detection: { status: 'NOT_RUN' },
+        revocation: { status: 'NOT_RUN' }, recovery: { status: 'NOT_RUN' },
         deviceApproval: { status: 'approved' }, verification: {
-          counts: { pass: 0, fail: 0, notRun: 0 }, cases: [],
+          counts: { pass: 0, fail: 0, notRun: 41 },
+          cases: Array.from({ length: 41 }, (_, index) => ({
+            id: `fixture-${index}`, name: `fixture-${index}`, expected: 'not run',
+            actual: null, requestId: null, checkedAt: null, status: 'NOT_RUN',
+          })),
         } });
     }
     if (path === '/api/notes' && (options.method ?? 'GET') === 'GET') {

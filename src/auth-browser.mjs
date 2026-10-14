@@ -45,20 +45,25 @@ let installPromptSeen = false;
 let deviceState = { status: 'unregistered', approved: false, pending: false };
 
 function renderOperationReport(report) {
-  if (report?.schema !== 'byteback.operation.v1' || !Array.isArray(report.verification?.cases)) {
+  if (report?.schema !== 'aleph.operations.v1' || !Array.isArray(report.verification?.cases)) {
     throw new Error('INVALID_OPERATION_REPORT');
   }
   const cases = report.verification.cases;
+  if (!Array.isArray(report.policy?.ruleIds)
+      || report.policy.count !== report.policy.ruleIds.length) {
+    throw new Error('INVALID_OPERATION_RULE_COUNT');
+  }
   const pass = cases.filter(item => item.status === 'PASS').length;
   const fail = cases.filter(item => item.status === 'FAIL').length;
   const notRun = cases.filter(item => item.status === 'NOT_RUN').length;
+  if (cases.length !== 41) throw new Error('INVALID_OPERATION_CASES');
   if (report.verification.counts?.pass !== pass || report.verification.counts?.fail !== fail
       || report.verification.counts?.notRun !== notRun) throw new Error('INVALID_OPERATION_COUNTS');
   operationSummary.replaceChildren();
   const summary = [
-    ['판정기 규칙', `${report.rules?.ids?.join(', ') || '확인 불가'} · 운영 판정 ${report.rules?.status || 'UNKNOWN'}`],
-    ['탐지 사건', `${report.detection?.status || 'UNKNOWN'} · ${report.detection?.source || '출처 없음'}`],
-    ['접속 회수', `${report.revocation?.status || 'UNKNOWN'} · ${report.revocation?.source || '출처 없음'}`],
+    ['판정기 규칙', `${report.policy?.ruleIds?.join(', ') || '확인 불가'} · 운영 판정 ${report.policy?.status || 'UNKNOWN'}`],
+    ['탐지 사건', report.detection?.status || 'UNKNOWN'],
+    ['접속 회수', report.revocation?.status || 'UNKNOWN'],
     ['복구 버전', `${report.recovery?.version || '확인 불가'} · ${report.recovery?.status || 'UNKNOWN'} (${report.recovery?.source || '출처 없음'})`],
     ['현재 기기 승인', report.deviceApproval?.status || 'unknown'],
   ];
@@ -71,15 +76,15 @@ function renderOperationReport(report) {
     item.append(heading, detail);
     operationSummary.append(item);
   }
-  verificationCounts.textContent = `실측 PASS ${pass} · FAIL ${fail} · NOT_RUN ${notRun} · 기록 기준 커밋 ${report.evidenceCommit}`;
+  verificationCounts.textContent = `실측 PASS ${pass} · FAIL ${fail} · NOT_RUN ${notRun} · 배포 기준 커밋 ${report.checkedCommit || '확인 불가'}`;
   verificationRows.replaceChildren();
   for (const item of cases) {
     const row = document.createElement('tr');
     const values = [
       `${item.name} / ${item.request ?? '요청 미기록'}`,
       item.expected,
-      item.actual ? `HTTP ${item.actual.httpStatus ?? '응답 없음'} ${item.actual.error ?? item.actual.action ?? ''} ${item.actual.policyVersion ?? ''} (${item.environment})` : '미실행',
-      item.requestId ? `${item.requestId} / ${item.checkedAt}` : '미실행',
+      item.actual ? `HTTP ${item.actual.httpStatus ?? '응답 없음'} · ${item.actual.body ?? 'response body redacted'}` : '미실행',
+      item.requestId ? `${item.requestId} (작전실 상관 ID) / ${item.checkedAt}` : '미실행',
       item.status,
     ];
     for (const value of values) {
@@ -94,6 +99,10 @@ function renderOperationReport(report) {
 
 async function loadOperationReport() {
   if (!controller?.state.authenticated) return;
+  if (!deviceState.approved) {
+    operationMessage.textContent = '기기 승인 후 작전실 기록을 확인할 수 있습니다.';
+    return;
+  }
   const revision = controller.state.sessionRevision;
   operationMessage.textContent = '검증 기록을 불러오는 중입니다.';
   try {
@@ -161,7 +170,6 @@ function render(state) {
   if (state.authenticated && state.sessionRevision !== previousSessionRevision && controller) {
     clearEditor();
     void initializeDeviceSession();
-    void loadOperationReport();
   }
   if (!state.authenticated && previousAuthenticated) clearNotes();
   if (!state.authenticated) {
@@ -224,6 +232,7 @@ async function initializeDeviceSession() {
   const wasApproved = deviceState.approved;
   if (await refreshDeviceStatus()) {
     if (!wasApproved) await loadNotes();
+    await loadOperationReport();
   } else {
     notesList.replaceChildren();
     clearEditor();

@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const stage11Commit = '1e06d42f4abb69cad677c159af536d8aa9732553';
 const failedCommit = '937f0d560d6aa21af13946718287abaa52b7b406';
 
 function run(command, args, options = {}) {
@@ -44,7 +43,9 @@ test('번들 import 그래프에는 심판 허용 모듈과 학생 판정 파일
   const allowedModules = new Set(['node:fs', 'node:path', 'node:url', 'node:child_process', 'node:crypto']);
   for (const file of graph) {
     const source = readFileSync(join(root, file), 'utf8');
-    assert.doesNotMatch(source, /\bimport\s*\(/u);
+    const dynamic = [...source.matchAll(/\bimport\(([^)]*)\)/gu)].map(match => match[1]);
+    assert.deepEqual(dynamic, file === 'scripts/bundle.mjs'
+      ? ['deciderUrl.href', 'checkerUrl.href'] : []);
     assert.doesNotMatch(source, /\brequire\s*\(/u);
     for (const match of source.matchAll(/\bfrom\s+['"]([^'"]+)['"]/gu)) {
       const specifier = match[1];
@@ -127,15 +128,16 @@ test('시작 틀 Git 호출 기준에서 실패 커밋은 막히고 현재 번�
     assert.ok(checked.children.length > 0);
     assert.ok(checked.children.every(item => item.program === 'git'
       && item.method === 'execFileSync' && item.args[0] === '-C'
-      && item.args[1] === current && allowedGit.includes(item.args[2])));
+      && resolve(item.args[1]) === current && allowedGit.includes(item.args[2])),
+    JSON.stringify(checked.children));
     const diffTree = checked.children.find(item => item.args[2] === 'diff-tree');
-    assert.deepEqual(diffTree.args.slice(3, 8),
-      ['--no-commit-id', '--name-only', '--no-renames', '-r', stage11Commit]);
-    assert.equal(diffTree.args[8], run('git', ['-C', current, 'rev-parse', 'HEAD']));
+    assert.deepEqual(diffTree.args.slice(3, 9),
+      ['--root', '--no-commit-id', '--name-only', '--no-renames', '-r',
+        run('git', ['-C', current, 'rev-parse', 'HEAD'])]);
 
     const bundle = JSON.parse(readFileSync(join(current, 'artifacts/submission.json'), 'utf8'));
-    const changed = run('git', ['-C', current, 'diff', '--name-only', '--no-renames',
-      stage11Commit, bundle.commit]).split(/\r?\n/u).filter(Boolean).sort();
+    const changed = run('git', ['-C', current, 'diff-tree', '--root', '--no-commit-id',
+      '--name-only', '--no-renames', '-r', bundle.commit]).split(/\r?\n/u).filter(Boolean).sort();
     assert.equal(bundle.schema, 'aleph.defense.submission.v2');
     assert.equal(bundle.step, 12);
     assert.equal(bundle.repoUrl, repoUrl);

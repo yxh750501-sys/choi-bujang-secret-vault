@@ -66,6 +66,7 @@ export function createDeviceHandler({
   verifierFactory = createLoginVerifier,
   storeFactory = createSupabaseDeviceApprovalStore,
   nonceFactory,
+  operationReporter = operationReport,
 } = {}) {
   return async function handler(request, response) {
     response.setHeader('Cache-Control', 'no-store');
@@ -112,7 +113,7 @@ export function createDeviceHandler({
     let deviceRef;
     if (request.method === 'GET' && operationView(request)) {
       deviceRef = readDeviceReference(request, env);
-      if (!deviceRef) return response.status(200).json(operationReport('unregistered'));
+      if (!deviceRef) return jsonError(response, 403, 'DEVICE_NOT_APPROVED');
     } else if (request.method === 'GET') {
       try {
         deviceRef = issueDeviceReference(request, response, { env, nonceFactory });
@@ -131,7 +132,10 @@ export function createDeviceHandler({
       if (request.method === 'GET') {
         record = await store.get(identity.userId, deviceRefHash);
         if (operationView(request)) {
-          return response.status(200).json(operationReport(record?.status ?? 'unregistered'));
+          if (record?.status !== 'approved') return jsonError(response, 403, 'DEVICE_NOT_APPROVED');
+          const report = await operationReporter({ config, deviceStatus: record.status,
+            deployedCommit: env.VERCEL_GIT_COMMIT_SHA?.toLowerCase() ?? null });
+          return response.status(200).json(report);
         }
         return response.status(200).json(statusResponse(record));
       }
