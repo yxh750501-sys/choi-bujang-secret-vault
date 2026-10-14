@@ -20,6 +20,13 @@ const noteBody = document.querySelector('#note-body');
 const saveNoteButton = document.querySelector('#save-note');
 const deleteNoteButton = document.querySelector('#delete-note');
 const cancelEditButton = document.querySelector('#cancel-edit');
+const installButton = document.querySelector('#install-button');
+const installStatus = document.querySelector('#install-status');
+const offlineRefreshButton = document.querySelector('#offline-refresh');
+const deviceStatusBadge = document.querySelector('#device-status');
+const deviceMessage = document.querySelector('#device-message');
+const deviceRequestButton = document.querySelector('#device-request-button');
+const deviceRevokeButton = document.querySelector('#device-revoke-button');
 
 let controller = null;
 let previousAuthenticated = false;
@@ -27,6 +34,9 @@ let previousSessionRevision = 0;
 let notesRequestId = 0;
 let selectedNoteId = null;
 let requestInFlight = false;
+let deferredInstallPrompt = null;
+let installPromptSeen = false;
+let deviceState = { status: 'unregistered', approved: false, pending: false };
 
 function clearEditor() {
   selectedNoteId = null;
@@ -48,14 +58,17 @@ function clearNotes() {
 
 function setBusy(busy) {
   requestInFlight = busy;
-  const disabled = busy || !controller?.state.authenticated;
-  logoutButton.disabled = disabled || controller?.state.busy;
-  reloadNotesButton.disabled = disabled;
-  newNoteButton.disabled = disabled;
-  saveNoteButton.disabled = disabled;
-  deleteNoteButton.disabled = disabled || !selectedNoteId;
-  cancelEditButton.disabled = disabled;
-  for (const button of notesList.querySelectorAll('button')) button.disabled = disabled;
+  const unauthenticated = !controller?.state.authenticated;
+  const notesDisabled = busy || unauthenticated || !deviceState.approved;
+  logoutButton.disabled = unauthenticated || controller?.state.loading || controller?.state.busy;
+  reloadNotesButton.disabled = notesDisabled;
+  newNoteButton.disabled = notesDisabled;
+  saveNoteButton.disabled = notesDisabled;
+  deleteNoteButton.disabled = notesDisabled || !selectedNoteId;
+  cancelEditButton.disabled = notesDisabled;
+  deviceRequestButton.disabled = busy || unauthenticated;
+  deviceRevokeButton.disabled = busy || unauthenticated || !deviceState.approved;
+  for (const button of notesList.querySelectorAll('button')) button.disabled = notesDisabled;
 }
 
 function render(state) {
@@ -74,12 +87,110 @@ function render(state) {
 
   if (state.authenticated && state.sessionRevision !== previousSessionRevision && controller) {
     clearEditor();
-    void loadNotes();
+    void initializeDeviceSession();
   }
   if (!state.authenticated && previousAuthenticated) clearNotes();
+  if (!state.authenticated) {
+    deviceState = { status: 'unregistered', approved: false, pending: false };
+    deviceStatusBadge.dataset.state = 'unregistered';
+    deviceStatusBadge.textContent = '미등록';
+    deviceMessage.textContent = '로그인 후 기기 승인 상태를 확인합니다.';
+    deviceRequestButton.disabled = true;
+    deviceRevokeButton.hidden = true;
+    clearNotes();
+  }
   previousAuthenticated = state.authenticated;
   previousSessionRevision = state.sessionRevision;
   setBusy(requestInFlight);
+}
+
+function updateDeviceBadge(status, message) {
+  const statuses = new Set(['unregistered', 'pending', 'approved', 'rejected', 'revoked', 'expired', 'unknown']);
+  const nextStatus = statuses.has(status) ? status : 'unknown';
+  deviceState = {
+    status: nextStatus,
+    approved: nextStatus === 'approved',
+    pending: nextStatus === 'pending',
+  };
+  deviceStatusBadge.dataset.state = nextStatus;
+  deviceStatusBadge.textContent = nextStatus === 'approved' ? '승인됨' : nextStatus === 'pending' ? '승인 대기' : nextStatus === 'revoked' ? '승인 취소' : nextStatus === 'rejected' ? '거절됨' : nextStatus === 'expired' ? '승인 만료' : nextStatus === 'unknown' ? '확인 불가' : '미등록';
+  deviceRevokeButton.hidden = nextStatus !== 'approved';
+  deviceMessage.textContent = message || '기기 승인 상태를 확인하고 있습니다.';
+  if (nextStatus !== 'approved') clearNotes();
+  setBusy(requestInFlight);
+}
+
+async function refreshDeviceStatus() {
+  if (!controller?.state.authenticated) {
+    updateDeviceBadge('unregistered', '로그인 후 기기 승인 상태를 확인합니다.');
+    return false;
+  }
+  try {
+    const result = await controller.request('/api/device', { method: 'GET', cache: 'no-store' });
+    if (typeof result?.status === 'string'
+        && typeof result.approved === 'boolean'
+        && result.approved === (result.status === 'approved')) {
+      updateDeviceBadge(result.status, result.approved ? '서버에서 승인된 기기입니다.' : result.pending ? '승인 요청이 접수되었습니다. 서버 검증을 기다려 주세요.' : '기기 승인 전에는 보호 자료에 접근할 수 없습니다.');
+      return result.approved;
+    }
+  } catch {
+    updateDeviceBadge('unknown', '기기 승인 상태를 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.');
+    return false;
+  }
+  updateDeviceBadge('unknown', '기기 승인 상태를 확인할 수 없습니다.');
+  return false;
+}
+
+async function initializeDeviceSession() {
+  const wasApproved = deviceState.approved;
+  if (await refreshDeviceStatus()) {
+    if (!wasApproved) await loadNotes();
+  } else {
+    notesList.replaceChildren();
+    clearEditor();
+    notesStatus.textContent = '이 기기는 승인 전이므로 보호 메모에 접근할 수 없습니다.';
+    notesStatus.dataset.kind = 'status';
+  }
+}
+
+async function requestDeviceApproval() {
+  if (!controller?.state.authenticated) return;
+  try {
+    deviceRequestButton.disabled = true;
+    const result = await controller.request('/api/device', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'request' }),
+    });
+    if (result?.status === 'pending') {
+      updateDeviceBadge('pending', '승인 요청을 접수했습니다. 서버에서 승인 여부를 확인할 수 있습니다.');
+      notesStatus.textContent = '승인 대기 중입니다. 보호 메모는 계속 차단됩니다.';
+      return;
+    }
+    if (result?.status === 'approved') {
+      updateDeviceBadge('approved', '서버가 이 기기를 승인했습니다. 보호 자료를 다시 확인할 수 있습니다.');
+      await loadNotes();
+      return;
+    }
+    updateDeviceBadge('unknown', '기기 승인 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+  } catch {
+    updateDeviceBadge('unknown', '기기 승인 요청 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+  }
+}
+
+async function revokeDeviceApproval() {
+  if (!controller?.state.authenticated || !deviceState.approved) return;
+  try {
+    const result = await controller.request('/api/device', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'revoke' }),
+    });
+    updateDeviceBadge(result?.status === 'revoked' ? 'revoked' : 'unknown',
+      result?.status === 'revoked' ? '이 기기의 승인이 취소되었습니다.' : '승인 취소 상태를 확인할 수 없습니다.');
+  } catch {
+    updateDeviceBadge('unknown', '승인을 취소하지 못했습니다. 서버에서 현재 상태를 확인해 주세요.');
+  }
 }
 
 async function apiRequest(path, options = {}) {
@@ -111,6 +222,13 @@ function renderNotes(notes) {
 
 async function loadNotes() {
   const requestId = ++notesRequestId;
+  if (!controller?.state.authenticated || !deviceState.approved) {
+    notesList.replaceChildren();
+    clearEditor();
+    notesStatus.textContent = '이 기기는 승인 전이므로 보호 메모에 접근할 수 없습니다.';
+    notesStatus.dataset.kind = 'status';
+    return;
+  }
   notesStatus.textContent = '메모를 불러오는 중입니다.';
   notesStatus.dataset.kind = 'status';
   notesList.replaceChildren();
@@ -125,6 +243,12 @@ async function loadNotes() {
     notesStatus.textContent = `${result.notes.length}개 메모를 불러왔습니다.`;
   } catch (error) {
     if (requestId !== notesRequestId || !controller.state.authenticated) return;
+    if (['DEVICE_NOT_APPROVED', 'DEVICE_STATUS_UNAVAILABLE'].includes(error.message)) {
+      updateDeviceBadge('unknown', '서버에서 기기 승인을 확인하지 못해 메모 접근을 차단했습니다.');
+      notesList.replaceChildren();
+      clearEditor();
+      return;
+    }
     notesStatus.textContent = error.message === 'REQUEST_IN_PROGRESS'
       ? '요청을 처리 중입니다.'
       : '메모를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.';
@@ -139,10 +263,14 @@ function openCreateForm() {
 }
 
 async function openNote(id) {
+  const requestId = notesRequestId;
+  const sessionRevision = controller.state.sessionRevision;
   notesStatus.textContent = '메모를 불러오는 중입니다.';
   notesStatus.dataset.kind = 'status';
   try {
     const note = await apiRequest(`/api/notes/${encodeURIComponent(id)}`);
+    if (requestId !== notesRequestId || sessionRevision !== controller.state.sessionRevision
+        || !deviceState.approved) return;
     if (typeof note.id !== 'string' || typeof note.title !== 'string' || typeof note.body !== 'string') {
       throw new Error('INVALID_NOTE');
     }
@@ -177,7 +305,11 @@ logoutButton.addEventListener('click', () => {
 });
 
 reloadNotesButton.addEventListener('click', () => {
-  if (controller?.state.authenticated) void loadNotes();
+  if (controller?.state.authenticated) {
+    void (async () => {
+      if (await refreshDeviceStatus()) await loadNotes();
+    })();
+  }
 });
 
 newNoteButton.addEventListener('click', openCreateForm);
@@ -185,7 +317,7 @@ cancelEditButton.addEventListener('click', clearEditor);
 
 notesList.addEventListener('click', event => {
   const button = event.target.closest('button[data-note-id]');
-  if (button && controller?.state.authenticated) void openNote(button.dataset.noteId);
+  if (button && controller?.state.authenticated && deviceState.approved) void openNote(button.dataset.noteId);
 });
 
 noteForm.addEventListener('submit', async event => {
@@ -234,6 +366,86 @@ deleteNoteButton.addEventListener('click', async () => {
       notesStatus.dataset.kind = 'error';
     }
   }
+});
+
+deviceRevokeButton.addEventListener('click', () => {
+  void revokeDeviceApproval();
+});
+
+window.addEventListener('online', () => {
+  if (controller?.state.authenticated) void initializeDeviceSession();
+});
+
+window.setInterval(() => {
+  if (controller?.state.authenticated) void initializeDeviceSession();
+}, 15000);
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      installStatus.textContent = '오프라인 앱 셸을 사용할 수 없습니다. 온라인 상태에서 새로고침해 주세요.';
+    });
+  });
+}
+
+window.addEventListener('beforeinstallprompt', event => {
+  event.preventDefault();
+  installPromptSeen = true;
+  deferredInstallPrompt = event;
+  installButton.hidden = false;
+  installStatus.textContent = '이 브라우저는 앱 설치를 지원합니다. 설치 버튼을 눌러 홈 화면에 추가할 수 있습니다.';
+});
+
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  installButton.hidden = true;
+  installStatus.textContent = '앱이 설치되었습니다. 서버에서 기기 승인 상태와 로그인 상태를 별도로 확인합니다.';
+});
+
+const installedApp = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+if (installedApp) {
+  installButton.hidden = true;
+  installStatus.textContent = '설치된 앱 모드입니다. 보호 자료는 서버 승인 상태를 별도로 확인합니다.';
+} else {
+  window.addEventListener('load', () => {
+    window.setTimeout(() => {
+      if (installPromptSeen || installedApp) return;
+      installButton.hidden = true;
+      installStatus.textContent = /iPad|iPhone|iPod/u.test(navigator.userAgent)
+        ? '설치 메뉴가 보이지 않으면 Safari 공유 메뉴에서 "홈 화면에 추가"를 선택하세요. 설치해도 기기 승인은 별도로 필요합니다.'
+        : '이 브라우저는 설치 안내를 제공하지 않습니다. 최신 브라우저에서 이용하거나 오프라인 안내를 확인하세요.';
+    }, 1200);
+  });
+}
+
+installButton.addEventListener('click', async () => {
+  if (!deferredInstallPrompt) {
+    installStatus.textContent = '설치 지원이 없거나 이미 설치된 상태입니다.';
+    return;
+  }
+  deferredInstallPrompt.prompt();
+  try {
+    const choice = await deferredInstallPrompt.userChoice;
+    installStatus.textContent = choice?.outcome === 'accepted'
+      ? '앱 설치를 요청했습니다. 서버 기기 승인은 별도로 확인해야 합니다.'
+      : '앱 설치가 취소되었습니다. 로그인과 기기 승인 상태는 변경되지 않았습니다.';
+  } catch {
+    installStatus.textContent = '앱 설치 요청을 완료하지 못했습니다. 브라우저 설치 메뉴를 확인해 주세요.';
+  }
+  deferredInstallPrompt = null;
+  installButton.hidden = true;
+});
+
+offlineRefreshButton.addEventListener('click', () => {
+  if (navigator.onLine) {
+    installStatus.textContent = '네트워크가 연결되어 있습니다. 최신 인증 상태를 서버에서 다시 확인합니다.';
+    return;
+  }
+  installStatus.textContent = '오프라인 상태입니다. 보호 자료는 서버에서 다시 검증되고 캐시에는 민감 정보가 저장되지 않습니다.';
+});
+
+deviceRequestButton.addEventListener('click', () => {
+  void requestDeviceApproval();
 });
 
 controller = createAuthController(render);

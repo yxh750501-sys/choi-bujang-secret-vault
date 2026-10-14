@@ -1,6 +1,18 @@
-# BYTE BACK 방어전 10단계
+# BYTE BACK 방어전 11단계
 
-자료실은 1~9단계의 인증·소유권·기기·자원 구역·로컬 사건 탐지 기능을 유지합니다. 10단계는 운영 복원 기능이 아니라 출처가 명시된 로컬 가상 fixture를 이용하는 복구 절차 연습입니다. `aleph.config.json`의 `step`은 10이며 기존 API와 로그인 설정은 보존했습니다. Production 동작은 별도로 검증해야 합니다. 실제 개인정보, 비밀번호, 토큰, 서버 전용 키를 저장소에 넣지 마세요.
+기존 1~10단계의 인증·소유권·복구 기능을 유지하며, 11단계는 설치형 PWA와 서버 측 기기 승인 검사를 추가합니다. `aleph.config.json`의 `step`은 11이며 `public/manifest.webmanifest`와 `public/sw.js`를 통해 설치 안내와 공개 앱 셸의 오프라인 안내를 제공합니다. Service Worker는 인증·기기·메모·복구 API 응답을 캐시하지 않습니다.
+
+## 11단계 기기 승인 보호
+
+- `/api/device`는 검증된 HttpOnly 로그인 세션과 서버 발급 HttpOnly 브라우저 참조 쿠키를 사용합니다. 브라우저가 보낸 `x-device-id`, 설치 상태, 요청 본문의 권한 주장은 신뢰하지 않습니다. 이 쿠키는 브라우저 프로필 참조일 뿐 WebAuthn 또는 물리 기기 증명이 아닙니다.
+- 승인 요청은 `POST /api/device`의 `{"action":"request"}`이며 상태는 `pending`으로만 바뀝니다. 일반 학생의 `approve`/`reject` 요청은 거부됩니다. 별도 `GET /api/device-approval`은 승인 대기 요청을 관리자에게 보여주고, `POST /api/device-approval`은 `{ "action": "approve"|"reject", "userId": "...", "deviceRef": "<SHA-256 참조>" }` 요청을 처리합니다. 해당 API는 검증된 로그인 UUID와 활성 `device_approval_admins` 레코드를 확인하고, CSRF/Origin 보호와 상태 전이를 적용합니다. 관리자는 자기 계정의 기기를 승인할 수 없습니다. 승인 취소는 현재 사용자의 승인된 브라우저 참조에 한해 가능합니다.
+- 서버 승인 유효기간은 승인 시각부터 30일입니다. 만료됐거나 만료 시각이 없고 잘못된 승인은 `expired`로 처리되어 메모 접근을 막으며 다시 승인 요청을 해야 합니다.
+- `/api/notes` 및 `/api/notes/:id`는 사용자 세션, Supabase의 승인 레코드 `approved`, 기존 `owner_id` 조건을 모두 확인합니다. 미승인·취소·조회 실패는 메모 DB 질의 전에 차단됩니다.
+- 영속 저장과 변경 감사는 [supabase/migrations/20261014000000_device_approvals.sql](./supabase/migrations/20261014000000_device_approvals.sql)의 `device_approvals`, `device_approval_events`, `device_approval_admins`를 사용합니다. Migration은 운영 DB에 자동 실행되지 않습니다. 운영 관리자를 등록하려면 Supabase Dashboard의 Authentication > Users에서 이미 존재하는 사용자의 UUID를 확인하고, [supabase/bootstrap/device_approval_admin.sql](./supabase/bootstrap/device_approval_admin.sql)의 placeholder를 그 UUID로 바꾼 뒤 SQL Editor에서 수동 실행해야 합니다. 실제 계정 UUID를 코드에 넣거나 공개 API로 관리자 등록을 하지 마세요. 관리자 조회/승인 저장소 오류 시 승인 처리는 fail-closed 됩니다.
+- 설치·승인 상태는 독립적입니다. PWA 설치만으로 서버 권한이 바뀌지 않습니다. 로컬 앱 셸만 오프라인에서 열리고 오프라인·승인 불가 시 보호 자료는 표시되지 않습니다.
+- 실행: `npm test`, `npm run detect`, `npm run decider`, `npm run fixture:7`, `npm run build -- --local`. 통합 테스트는 실제 `api/device.js`와 `api/notes.js` 핸들러를 검증하지만 Supabase 운영 DB, Vercel 배포 또는 공식 승인자를 검증하지 않습니다.
+
+자료실은 1~10단계의 인증·소유권·기기·자원 구역·로컬 사건 탐지 기능을 유지합니다. 10단계는 운영 복원 기능이 아니라 출처가 명시된 로컬 가상 fixture를 이용하는 복구 절차 연습입니다. `aleph.config.json`의 `step`은 11이며 기존 API와 로그인 설정은 보존했습니다. Production 동작은 별도로 검증해야 합니다. 실제 개인정보, 비밀번호, 토큰, 서버 전용 키를 저장소에 넣지 마세요.
 
 ## 10단계 로컬 복구 연습
 

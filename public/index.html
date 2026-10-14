@@ -3,6 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101a28">
+  <meta name="description" content="최부장의 비밀창고는 보호된 메모 자료실과 기기 승인 절차를 제공하는 설치형 웹앱입니다.">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon-192.png" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <title>BYTE BACK | 점령된 자료실</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; }
@@ -33,14 +38,40 @@
     .note-actions { display: flex; gap: 10px; flex-wrap: wrap; }
     #notes li button { width: 100%; text-align: left; }
     #notes-status[data-kind="error"] { color: #ffb8c2; }
+    .device-panel { margin: 24px 0; padding: 20px; border: 1px solid #51667c; border-radius: 10px; background: rgba(18, 32, 46, 0.9); }
+    .device-panel h2 { margin-top: 0; }
+    .device-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .device-status { display: inline-flex; align-items: center; min-height: 32px; padding: 6px 10px; border-radius: 999px; background: #203045; color: #dfeaf7; font-size: 14px; font-weight: 700; }
+    .device-status[data-state="approved"] { background: rgba(52, 122, 86, 0.28); color: #dffbe8; }
+    .device-status[data-state="pending"] { background: rgba(196, 154, 62, 0.22); color: #fff0c6; }
+    .device-status[data-state="rejected"] { background: rgba(166, 80, 80, 0.28); color: #ffdfe3; }
+    .device-status[data-state="unregistered"] { background: rgba(108, 128, 146, 0.22); color: #dfeaf7; }
     [hidden] { display: none !important; }
   </style>
 </head>
 <body>
   <main>
     <div class="eyebrow">BYTE BACK · 진짜 로그인</div>
-    <h1>점령된 자료실</h1>
+    <h1>최부장의 비밀창고</h1>
     <div class="notice">로그인한 세션의 토큰을 서버에서 검증한 뒤 보호된 메모를 불러옵니다.</div>
+    <section id="install-panel" class="device-panel" aria-labelledby="install-heading">
+      <h2 id="install-heading">설치형 웹앱</h2>
+      <p>이 자료실은 설치 가능한 PWA이며, 브라우저가 지원할 때 앱 설치 버튼을 사용할 수 있습니다.</p>
+      <div class="device-row">
+        <button id="install-button" type="button" hidden>앱 설치</button>
+        <button id="offline-refresh" type="button">오프라인 안내 다시 확인</button>
+      </div>
+      <p id="install-status" role="status" aria-live="polite">설치 상태를 확인하는 중입니다.</p>
+    </section>
+    <section id="device-panel" class="device-panel" aria-labelledby="device-heading">
+      <h2 id="device-heading">기기 승인 상태</h2>
+      <div class="device-row">
+        <span id="device-status" class="device-status" data-state="unregistered">미등록</span>
+        <button id="device-request-button" type="button">기기 승인 요청</button>
+        <button id="device-revoke-button" type="button" hidden>이 기기 승인 취소</button>
+      </div>
+      <p id="device-message" role="status" aria-live="polite">로그인 후 기기 승인 상태를 확인합니다.</p>
+    </section>
     <section id="login-panel" class="auth-panel" aria-labelledby="login-heading">
       <h2 id="login-heading">로그인</h2>
       <form id="login-form" class="auth-form">

@@ -99,6 +99,8 @@ test('saved note selection enables delete; successful and failed deletion preser
     'account-panel', 'account-email', 'logout-button', 'auth-status', 'notes',
     'notes-status', 'reload-notes', 'new-note', 'note-form', 'note-form-heading',
     'note-title', 'note-body', 'save-note', 'delete-note', 'cancel-edit',
+    'install-button', 'install-status', 'offline-refresh', 'device-status',
+    'device-message', 'device-request-button', 'device-revoke-button',
   ];
   for (const id of elementIds) elements.set(`#${id}`, new FakeElement(id.includes('form') ? 'form' : 'div'));
   const noteForm = elements.get('#note-form');
@@ -110,7 +112,12 @@ test('saved note selection enables delete; successful and failed deletion preser
     querySelector: selector => elements.get(selector),
     createElement: tagName => new FakeElement(tagName),
   };
-  globalThis.window = { confirm: () => true };
+  globalThis.window = {
+    confirm: () => true,
+    matchMedia: () => ({ matches: false }),
+    addEventListener() {},
+    setInterval() {},
+  };
   globalThis.fetch = async (path, options = {}) => {
     requests.push({ path, options });
     assert.equal(options.credentials, 'same-origin');
@@ -123,6 +130,9 @@ test('saved note selection enables delete; successful and failed deletion preser
     }
     if (path === '/api/auth/csrf') {
       return jsonResponse({ csrfToken: 'fake-csrf-ui-test-token' });
+    }
+    if (path === '/api/device') {
+      return jsonResponse({ status: 'approved', approved: true, pending: false });
     }
     if (path === '/api/notes' && (options.method ?? 'GET') === 'GET') {
       return jsonResponse({ notes: [...rows.values()] });
