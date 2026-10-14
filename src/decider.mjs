@@ -7,9 +7,13 @@ export const RULE_IDS = Object.freeze([
 ]);
 
 function isAllowedResourceRequest(request) {
-  if (request?.service !== 'notes' || request.method !== 'GET'
-      || request.route !== 'GET /notes/:id' || request.queryLength !== 0
+  if (request?.method !== 'GET' || request.queryLength !== 0
       || typeof request.path !== 'string') return false;
+
+  if (request.service === 'announcements') {
+    return request.path === '/announcements' && request.route === 'GET /announcements';
+  }
+  if (request.service !== 'notes' || request.route !== 'GET /notes/:id') return false;
 
   const match = /^\/notes\/([^/%?#\\]+)$/u.exec(request.path);
   return Boolean(match && match[1] !== '.' && match[1] !== '..'

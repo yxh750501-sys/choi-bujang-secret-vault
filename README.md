@@ -6,11 +6,12 @@
 
 - 판정기는 계약에 있는 `service`, `method`, `path`, `route`, `queryLength`만 사용합니다. 등록 기기에서 `service: notes`, `GET`, 정확한 `GET /notes/:id` route, 쿼리 없음, 단일 비어 있지 않은 ID 경로만 허용합니다. 메모 ID는 UUID 형식을 강제하지 않습니다.
 - 전체 목록, ID 누락, 추가 경로 구간, 퍼센트 인코딩·쿼리 우회, 쓰기 메서드와 미등록 서비스·경로는 `deny` / `resource_access_denied` (`resource_boundary`)입니다. 유효한 추가 인증으로도 이 거부를 바꿀 수 없습니다.
-- 판정 요청 계약에는 반 공지의 공식 서비스·경로가 정의되어 있지 않아 허용 경로를 추가하지 않았습니다. 강사 전용 자료 및 기타 미등록 구역은 기본 거부입니다. 공지·강사 자료 API나 가짜 데이터를 만들지 않았습니다.
-- `allowedRoutes`는 판정 정책의 `GET /api/notes/:id` 허용 목록이며 Vercel 라우팅 설정이 아닙니다. 실제 Vercel API의 목록 및 메모 CRUD 경로는 그대로 두어 기존 UI 기능에 영향을 주지 않습니다.
+- 가상 판정 예시의 정확한 `announcements` / `GET` / `/announcements` 조합만 허용하며, 쓰기·쿼리·추가 경로·유사 경로는 거부합니다. 이는 예시 요청 판정일 뿐 공식 엔진의 실제 공지 경로나 운영 API 지원을 뜻하지 않습니다. 강사 전용 자료와 기타 미등록 구역은 거부합니다.
+- `allowedRoutes`에는 실제 메모 API에 대응하는 판정 정책의 `GET /api/notes/:id`만 둡니다. 공지 API 경로는 운영 계약이 없어 추가하지 않았으며, 이 목록은 Vercel 라우팅 설정이 아닙니다. 기존 실제 메모 CRUD 경로는 그대로 유지됩니다.
 - 실제 API의 세션/Bearer 검증, 요청자 역할·`owner_id` 무시, 목록의 서버 검증 사용자 필터와 단건 GET/PUT/DELETE의 검증 사용자 `owner_id` 조건을 재사용했습니다. A/B 사용자 교차 접근은 기존 API 테스트의 404 기대를 유지합니다. 메모 API 파일은 변경하지 않았습니다.
 - 검증 결과: `npm run decider`의 가상 판정 34건, `npm run fixture:7`, 지정 회귀 테스트 30개, `npm run build -- --local`, `git diff --check`, 별도 복제본 `npm install`이 통과했습니다. 추적 파일의 비밀 패턴 검사는 기존 `test/r5.test.mjs`의 가상 Bearer fixture 한 건만 탐지했으며 실제 비밀값이 아닙니다. 공개 산출물에서는 패턴이 탐지되지 않았습니다.
 - 실제 Supabase 계정·DB, Production 라우팅과 사용자별 메모 접근, 반 공지 및 강사 자료의 운영 API는 확인하지 않았습니다. `npm run decider`와 `npm run fixture:7`은 가상 요청 연습이지 심판 판정이 아닙니다.
+- `resource_access_denied`가 운영 등록부의 허용 `reasonCode`인지도 확인하지 않았습니다.
 
 ## 현재 동작
 

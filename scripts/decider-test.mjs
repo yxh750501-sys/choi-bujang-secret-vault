@@ -111,12 +111,31 @@ export async function checkDecider({ decide, ruleIds }) {
         decision: 'deny', reasonCode: 'resource_access_denied' },
       { name: '쿼리 선택 요청 거부', request: { ...normal, queryLength: 6 },
         decision: 'deny', reasonCode: 'resource_access_denied' },
-      { name: '반 공지 계약 미정 경로 거부', request: { ...normal, service: 'announcements',
+      { name: '반 공지 정확한 GET 허용', request: { ...normal, service: 'announcements',
         path: '/announcements', route: 'GET /announcements' },
+      decision: 'allow', reasonCode: 'approved' },
+      ...['POST', 'PUT', 'PATCH', 'DELETE'].map(method => ({
+        name: `반 공지 ${method} 쓰기 거부`,
+        request: { ...normal, service: 'announcements', method,
+          path: '/announcements', route: `${method} /announcements` },
+        decision: 'deny',
+        reasonCode: 'resource_access_denied',
+      })),
+      { name: '반 공지 쿼리 우회 거부', request: { ...normal, service: 'announcements',
+        path: '/announcements', route: 'GET /announcements', queryLength: 1 },
+      decision: 'deny', reasonCode: 'resource_access_denied' },
+      { name: '반 공지 추가 경로 거부', request: { ...normal, service: 'announcements',
+        path: '/announcements/export', route: 'GET /announcements/:action' },
+      decision: 'deny', reasonCode: 'resource_access_denied' },
+      { name: '반 공지 유사 경로 거부', request: { ...normal, service: 'announcements',
+        path: '/announcements-extra', route: 'GET /announcements-extra' },
       decision: 'deny', reasonCode: 'resource_access_denied' },
       { name: '강사 자료 경로 거부', request: { ...normal, service: 'materials',
         path: '/materials/lesson', route: 'GET /materials/:id' },
       decision: 'deny', reasonCode: 'resource_access_denied' },
+      { name: '반 공지 미등록 기기 거부', request: { ...normal, service: 'announcements',
+        path: '/announcements', route: 'GET /announcements', deviceRegistered: false },
+      decision: 'deny', reasonCode: 'device_not_registered' },
       { name: '추가 인증으로 자원 거부 우회 불가', request: { ...normal, path: '/notes',
         route: 'GET /notes', stepUp: { verified: true, authAgeSeconds: 60 } },
       decision: 'deny', reasonCode: 'resource_access_denied' },
@@ -128,7 +147,8 @@ export async function checkDecider({ decide, ruleIds }) {
       passed: validResponse(item.request, response, ruleIds)
         && response.decision === item.decision
         && response.reasonCode === item.reasonCode
-        && (item.decision !== 'deny' || response.ruleIds.includes('resource_boundary')),
+        && (item.reasonCode !== 'resource_access_denied'
+          || response.ruleIds.includes('resource_boundary')),
     });
   }
   return results;
