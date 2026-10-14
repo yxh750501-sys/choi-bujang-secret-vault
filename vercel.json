@@ -8,6 +8,12 @@
       "includeFiles": "test/fixtures/**"
     }
   },
+  "rewrites": [
+    {
+      "source": "/api/device-status",
+      "destination": "/api/device"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",

@@ -18,7 +18,6 @@ test('패키징 함수 기준표는 시작 틀의 실제 API와 일치한다', a
     ...baseline.functions,
     ...baseline.allowedNew,
     'api/device-approval.js',
-    'api/device-status.js',
     'api/device.js',
   ].sort());
 });

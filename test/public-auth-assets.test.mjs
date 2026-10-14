@@ -74,7 +74,10 @@ test('public browser and build sources do not publish a Supabase key while serve
     key: 'X-Content-Type-Options',
     value: 'nosniff',
   });
-  assert.equal(vercelFile.rewrites, undefined);
+  assert.deepEqual(vercelFile.rewrites, [{
+    source: '/api/device-status',
+    destination: '/api/device',
+  }]);
   assert.equal(vercelFile.redirects, undefined);
   assert.equal(configFile.restoreRoute, 'POST /api/restore');
   assert.equal(vercelFile.functions['api/restore.js'].includeFiles, 'test/fixtures/**');
