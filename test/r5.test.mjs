@@ -91,6 +91,7 @@ test('build identity uses Vercel Git and deployment metadata', () => {
   assert.equal(deploymentIdentity(env, { ...config, step: 6 }).step, 6);
   assert.equal(deploymentIdentity(env, { ...config, step: 7 }).step, 7);
   assert.equal(deploymentIdentity(env, { ...config, step: 8 }).step, 8);
+  assert.equal(deploymentIdentity(env, { ...config, step: 9 }).step, 9);
   assert.throws(() => deploymentIdentity(env, { ...config, step: 3 }));
 });
 
@@ -655,12 +656,12 @@ test('CRUD UI, server-only database privileges, and stage-five routes are config
   assert.equal(configFile.originalApiUrl, 'https://yweroshtkwjziprmgxcx.supabase.co/rest/v1/notes');
   assert.equal(new URL(configFile.originalApiUrl).origin, new URL(configFile.identityProvider.issuer).origin);
   assert.equal(new URL(configFile.originalApiUrl).search, '');
-  assert.match(buildScript, /!\[4, 5, 6, 7, 8\]\.includes\(config\.step\)/u);
-  assert.match(buildScript, /aleph\.config\.json의 step이 4, 5, 6, 7 또는 8이어야 합니다/u);
+  assert.match(buildScript, /!\[4, 5, 6, 7, 8, 9\]\.includes\(config\.step\)/u);
+  assert.match(buildScript, /aleph\.config\.json의 step이 4, 5, 6, 7, 8 또는 9이어야 합니다/u);
   assert.match(buildScript, /공개 data\.json을 생성하지 않았습니다/u);
   assert.match(buildScript, /resolve\(root, 'public', 'aleph\.json'\)/u);
   assert.deepEqual(configFile.allowedRoutes, ['GET /api/notes/:id']);
-  assert.equal(configFile.step, 8);
+  assert.equal(configFile.step, 9);
   assert.equal(deploymentIdentity(env, config).step, 5);
   assert.equal(configFile.identityProvider.audience, 'authenticated');
   assert.match(html, /id="note-form"/u);
