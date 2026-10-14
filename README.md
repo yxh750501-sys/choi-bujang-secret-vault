@@ -1,6 +1,16 @@
-# BYTE BACK 방어전 7단계
+# BYTE BACK 방어전 8단계
 
-자료실은 BYTE BACK 5단계 제작 2의 인증·소유권 보호와 6단계 등록 기기 접근제어를 유지하고, 7단계의 가상 이상 접속 추가 확인 판정을 구현했습니다. 메모 접근은 Vercel 서버 API로 모으며 `aleph.config.json`의 `step`은 7입니다. `originalApiUrl`은 원본 Supabase notes REST Data API를 가리킵니다. Production은 별도로 검증해야 합니다. 실제 개인정보, 비밀번호, 토큰, 서버 전용 키를 저장소에 넣지 마세요.
+자료실은 5단계 서버 인증·메모 소유권 보호, 6단계 등록 기기 접근제어, 7단계 복합 이상 접속 추가 확인을 유지하고 8단계 자원 구역 판정을 더했습니다. `aleph.config.json`의 `step`은 8이며 `originalApiUrl`, 로그인 발급자, 실제 Production 주소는 보존했습니다. Production 동작은 별도로 검증해야 합니다. 실제 개인정보, 비밀번호, 토큰, 서버 전용 키를 저장소에 넣지 마세요.
+
+## 8단계 자원 구역
+
+- 판정기는 계약에 있는 `service`, `method`, `path`, `route`, `queryLength`만 사용합니다. 등록 기기에서 `service: notes`, `GET`, 정확한 `GET /notes/:id` route, 쿼리 없음, 단일 비어 있지 않은 ID 경로만 허용합니다. 메모 ID는 UUID 형식을 강제하지 않습니다.
+- 전체 목록, ID 누락, 추가 경로 구간, 퍼센트 인코딩·쿼리 우회, 쓰기 메서드와 미등록 서비스·경로는 `deny` / `resource_access_denied` (`resource_boundary`)입니다. 유효한 추가 인증으로도 이 거부를 바꿀 수 없습니다.
+- 판정 요청 계약에는 반 공지의 공식 서비스·경로가 정의되어 있지 않아 허용 경로를 추가하지 않았습니다. 강사 전용 자료 및 기타 미등록 구역은 기본 거부입니다. 공지·강사 자료 API나 가짜 데이터를 만들지 않았습니다.
+- `allowedRoutes`는 판정 정책의 `GET /api/notes/:id` 허용 목록이며 Vercel 라우팅 설정이 아닙니다. 실제 Vercel API의 목록 및 메모 CRUD 경로는 그대로 두어 기존 UI 기능에 영향을 주지 않습니다.
+- 실제 API의 세션/Bearer 검증, 요청자 역할·`owner_id` 무시, 목록의 서버 검증 사용자 필터와 단건 GET/PUT/DELETE의 검증 사용자 `owner_id` 조건을 재사용했습니다. A/B 사용자 교차 접근은 기존 API 테스트의 404 기대를 유지합니다. 메모 API 파일은 변경하지 않았습니다.
+- 검증 결과: `npm run decider`의 가상 판정 34건, `npm run fixture:7`, 지정 회귀 테스트 30개, `npm run build -- --local`, `git diff --check`, 별도 복제본 `npm install`이 통과했습니다. 추적 파일의 비밀 패턴 검사는 기존 `test/r5.test.mjs`의 가상 Bearer fixture 한 건만 탐지했으며 실제 비밀값이 아닙니다. 공개 산출물에서는 패턴이 탐지되지 않았습니다.
+- 실제 Supabase 계정·DB, Production 라우팅과 사용자별 메모 접근, 반 공지 및 강사 자료의 운영 API는 확인하지 않았습니다. `npm run decider`와 `npm run fixture:7`은 가상 요청 연습이지 심판 판정이 아닙니다.
 
 ## 현재 동작
 
