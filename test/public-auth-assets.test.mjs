@@ -77,6 +77,9 @@ test('public browser and build sources do not publish a Supabase key while serve
   assert.deepEqual(vercelFile.rewrites, [{
     source: '/api/device-status',
     destination: '/api/device',
+  }, {
+    source: '/api/operations',
+    destination: '/api/device?view=operation',
   }]);
   assert.equal(vercelFile.redirects, undefined);
   assert.equal(configFile.restoreRoute, 'POST /api/restore');

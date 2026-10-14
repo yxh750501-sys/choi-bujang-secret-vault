@@ -66,8 +66,8 @@
         "httpStatus": 401,
         "error": "AUTHENTICATION_REQUIRED"
       },
-      "requestId": "45e5e81a-a603-4958-ac64-baa2c573e786",
-      "checkedAt": "2026-10-14T10:11:11.445Z",
+      "requestId": "5e984a01-2fc9-46fe-8d3d-1aa4b5d58f76",
+      "checkedAt": "2026-10-14T10:17:47.583Z",
       "environment": "local-handler",
       "status": "PASS"
     },
@@ -215,8 +215,8 @@
         "policyVersion": "stage10-safe-policy-fixture-v1",
         "retests": "not_run"
       },
-      "requestId": "38192fd1-8c74-4412-9d82-0f36546d66df",
-      "checkedAt": "2026-10-14T10:11:11.448Z",
+      "requestId": "be618e5a-c69e-40ad-8ec7-a1a20fb95621",
+      "checkedAt": "2026-10-14T10:17:47.587Z",
       "environment": "local-handler",
       "status": "PASS"
     },
@@ -251,8 +251,8 @@
         "httpStatus": 401,
         "error": "AUTHENTICATION_REQUIRED"
       },
-      "requestId": "5cbf8691-ba86-48c0-a743-d1abe5b9e8b6",
-      "checkedAt": "2026-10-14T10:11:11.448Z",
+      "requestId": "0e6c6f9f-6545-4137-b170-5e17a04171d9",
+      "checkedAt": "2026-10-14T10:17:47.587Z",
       "environment": "local-handler",
       "status": "PASS"
     },

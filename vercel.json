@@ -12,6 +12,10 @@
     {
       "source": "/api/device-status",
       "destination": "/api/device"
+    },
+    {
+      "source": "/api/operations",
+      "destination": "/api/device?view=operation"
     }
   ],
   "headers": [

@@ -26,11 +26,12 @@ test('작전실 API 수치는 검증 기록과 같고 현재 기기 상태는 �
     storeFactory: () => ({ get: async () => ({ status: 'approved' }) }),
   });
   const response = responseMock();
-  await handler({ method: 'GET', query: { view: 'operation' },
+  await handler({ method: 'GET', url: '/api/operations',
     headers: { cookie: `__Host-bb_access=local-fixture; __Host-bb_device_ref=${reference}` } }, response);
   assert.equal(response.statusCode, 200);
   assert.equal(response.getHeader('Cache-Control'), 'no-store');
   assert.equal(response.body.deviceApproval.status, 'approved');
+  assert.equal(response.body.provenance.providedEngine, 'ALEPH SDP 엔진');
   assert.deepEqual(response.body.verification.counts, operationReport('approved').verification.counts);
   assert.equal(response.body.verification.cases.length, 63);
   assert.equal(response.body.verification.counts.pass, 3);
@@ -41,12 +42,14 @@ test('작전실 API 수치는 검증 기록과 같고 현재 기기 상태는 �
   assert.equal(response.body.rules.status, 'NOT_RUN');
   assert.equal(response.body.detection.status, 'NOT_RUN');
   assert.equal(JSON.stringify(response.body).includes('local-fixture'), false);
+  assert.ok(response.body.verification.cases.filter(item => item.status === 'PASS')
+    .every(item => item.requestId && item.checkedAt && item.actual?.httpStatus));
 });
 
 test('미인증 작전실은 거부되고 미실행 41건은 PASS가 아니다', async () => {
   const handler = createDeviceHandler();
   const response = responseMock();
-  await handler({ method: 'GET', query: { view: 'operation' }, headers: {} }, response);
+  await handler({ method: 'GET', url: '/api/operations', headers: {} }, response);
   assert.equal(response.statusCode, 401);
   assert.equal(response.body.error, 'AUTHENTICATION_REQUIRED');
   const attacks = evidence.cases.filter(item => item.id.startsWith('attack_'));
@@ -58,4 +61,33 @@ test('미인증 작전실은 거부되고 미실행 41건은 PASS가 아니다',
   const functions = (await readdir(new URL('../api/', import.meta.url), { recursive: true }))
     .filter(name => /\.js$/u.test(name));
   assert.equal(functions.length, 12);
+});
+
+test('작전실 조회는 새 기기 쿠키를 발급하지 않는다', async () => {
+  const handler = createDeviceHandler({ env: { VERCEL: '1' },
+    verifierFactory: () => async () => ({ kind: 'student', userId }),
+    storeFactory: () => { throw new Error('store must not be queried'); },
+  });
+  const response = responseMock();
+  await handler({ method: 'GET', url: '/api/operations',
+    headers: { cookie: '__Host-bb_access=local-fixture' } }, response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.deviceApproval.status, 'unregistered');
+  assert.equal(response.getHeader('Set-Cookie'), undefined);
+  assert.equal(JSON.stringify(response.body).includes('local-fixture'), false);
+});
+
+test('요청 ID나 응답 증거가 없으면 PASS를 공개하지 않는다', () => {
+  const measuredCase = structuredClone(evidence.cases.find(item => item.status === 'PASS'));
+  measuredCase.actual.cookie = 'must-never-appear';
+  assert.equal(JSON.stringify(operationReport('approved', {
+    commit: evidence.commit, cases: [measuredCase],
+  })).includes('must-never-appear'), false);
+  const caseItem = structuredClone(measuredCase);
+  caseItem.requestId = null;
+  caseItem.actual = { httpStatus: 200, cookie: 'must-never-appear' };
+  const report = operationReport('approved', { commit: evidence.commit, cases: [caseItem] });
+  assert.deepEqual(report.verification.counts, { pass: 0, fail: 0, notRun: 1 });
+  assert.equal(report.verification.cases[0].actual, null);
+  assert.equal(JSON.stringify(report).includes('must-never-appear'), false);
 });

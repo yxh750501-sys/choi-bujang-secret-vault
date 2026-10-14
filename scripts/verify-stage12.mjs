@@ -44,6 +44,7 @@ for (let number = 1; number <= 41; number += 1) {
 async function check(id, handler, request, expectedStatus, expectedError = null) {
   const row = cases.find(item => item.id === id);
   const requestId = randomUUID();
+  request.headers = { ...request.headers, 'x-request-id': requestId };
   const response = responseMock();
   try {
     await handler(request, response);
@@ -59,7 +60,7 @@ async function check(id, handler, request, expectedStatus, expectedError = null)
     row.actual = { error: 'HANDLER_EXCEPTION' };
     row.status = 'FAIL';
   }
-  row.requestId = requestId;
+  row.requestId = request.headers['x-request-id'];
   row.checkedAt = new Date().toISOString();
   row.environment = 'local-handler';
 }

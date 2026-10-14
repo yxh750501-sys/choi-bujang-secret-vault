@@ -97,7 +97,7 @@ async function loadOperationReport() {
   const revision = controller.state.sessionRevision;
   operationMessage.textContent = '검증 기록을 불러오는 중입니다.';
   try {
-    const report = await controller.request('/api/device?view=operation', { method: 'GET' });
+    const report = await controller.request('/api/operations', { method: 'GET' });
     if (controller.state.authenticated && controller.state.sessionRevision === revision) {
       renderOperationReport(report);
     }

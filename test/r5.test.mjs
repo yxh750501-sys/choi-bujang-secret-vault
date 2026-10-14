@@ -142,7 +142,7 @@ test('fifth-stage attack check confirms anonymous data is private and API denial
       }
       return dataResponse();
     };
-    const [result, apiResult] = await runAttackChecks({ ...config, step: 7 });
+    const [result, apiResult] = await runAttackChecks({ ...config, step: 7 }, { allowNetwork: true });
     assert.deepEqual(requestedUrls.slice(0, 2), [
       'https://student-defense.vercel.app/data.json',
       'https://student-defense.vercel.app/api/notes',
@@ -158,22 +158,40 @@ test('fifth-stage attack check confirms anonymous data is private and API denial
       status: 200,
       headers: { 'content-type': 'application/json' },
     });
-    const [empty] = await runAttackChecks(config);
+    const [empty] = await runAttackChecks(config, { allowNetwork: true });
     assert.match(empty.observed, /공개 메모가 없음/u);
     dataResponse = () => new Response(JSON.stringify({ notes: [{ title: '가상' }] }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     });
-    const [failed] = await runAttackChecks(config);
+    const [failed] = await runAttackChecks(config, { allowNetwork: true });
     assert.match(failed.observed, /메모가 노출됨/u);
     assert.equal(apiRequestCount, 3);
 
     jsonApiDenial = false;
-    const [, htmlDenied] = await runAttackChecks(config);
+    const [, htmlDenied] = await runAttackChecks(config, { allowNetwork: true });
     assert.match(htmlDenied.observed, /안전한 JSON 거부를 확인하지 못함/u);
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('격리된 점검은 외부 요청을 보내지 않고 응답 없는 항목만 not_run으로 남긴다', async () => {
+  let requests = 0;
+  const fetchImpl = async url => {
+    requests += 1;
+    if (new URL(url).pathname === '/data.json') throw new Error('NETWORK_UNAVAILABLE');
+    return new Response(JSON.stringify({ error: 'AUTHENTICATION_REQUIRED' }), {
+      status: 401, headers: { 'content-type': 'application/json' },
+    });
+  };
+  const isolated = await runAttackChecks(config, { fetchImpl });
+  assert.equal(requests, 0);
+  assert.deepEqual(isolated.map(item => item.observed), ['not_run', 'not_run']);
+  const local = await runAttackChecks(config, { allowNetwork: true, fetchImpl });
+  assert.equal(requests, 2);
+  assert.equal(local[0].observed, 'not_run');
+  assert.match(local[1].observed, /HTTP 401/u);
 });
 
 test('notes API requires verified bearer auth before reading rows', async () => {

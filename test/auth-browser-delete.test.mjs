@@ -136,7 +136,7 @@ test('saved note selection enables delete; successful and failed deletion preser
     if (path === '/api/device') {
       return jsonResponse({ status: 'approved', approved: true, pending: false });
     }
-    if (path === '/api/device?view=operation') {
+    if (path === '/api/operations') {
       return jsonResponse({ schema: 'byteback.operation.v1', evidenceCommit: 'fixture',
         rules: { ids: [], status: 'NOT_RUN' }, detection: { status: 'NOT_RUN' },
         revocation: { status: 'UNKNOWN' }, recovery: { status: 'NOT_RUN' },
