@@ -2,19 +2,19 @@
 
 ## 12단계 운영 안내
 
-검사 기준은 `1e06d42f4abb69cad677c159af536d8aa9732553`(11단계 main)입니다. 이 문서의 아래 1~11단계 시험 수치와 단계별 `step` 문장은 당시의 기록이며, 현재 설정은 `aleph.config.json`의 `step: 12`입니다. 현재 공개 앱 주소는 `https://choi-bujang-secret-vault-jade-alpha.vercel.app`이고, 로그인 발급자·JWKS·원본 API 주소·허용 판정 경로는 `aleph.config.json`의 기존 값을 유지합니다.
+11단계 기준 커밋은 `1e06d42f4abb69cad677c159af536d8aa9732553`입니다. 아래 이전 단계의 시험 수치와 단계별 `step` 문장은 당시 기록이며, 현재 설정은 `aleph.config.json`의 `step: 12`입니다. 작전실의 `evidenceCommit`은 `npm run verify:stage12`가 실제 API 핸들러를 검사한 구현 커밋입니다. 공개 앱 주소는 `https://choi-bujang-secret-vault-jade-alpha.vercel.app`이며 로그인 발급자·JWKS·원본 API 주소·허용 판정 경로는 기존 설정을 유지합니다.
 
-- 설치: 새 복제본에서 Node.js 22 이상을 준비하고 `npm install`을 실행합니다. 비밀값은 저장소에 넣지 말고 배포 환경의 비밀 입력란에 설정합니다.
-- 실행: `npm run build -- --local`은 공개 앱 셸을 빌드하고, `npm test`는 구현된 API·화면을 로컬 테스트에서 실행합니다. 현재 `package.json`에는 로컬 웹 서버 시작 명령이 없습니다.
-- 중지: 위 명령은 작업이 끝나면 종료됩니다. 진행 중인 명령은 해당 터미널에서 Ctrl+C로 중단합니다. 서버리스 함수 메모리에 둔 10단계 복구 연습 상태는 함수 재시작 뒤 유지되지 않습니다.
+- 설치: 새 복제본에서 Node.js 22 이상을 준비하고 잠금 파일 기준 `npm ci`를 실행합니다. 비밀값은 저장소에 넣지 말고 배포 환경의 비밀 입력란에 설정합니다.
+- 실행: `npm run build -- --local`은 공개 앱 셸을 빌드하고, `npm test`는 구현된 API·화면을 로컬 테스트에서 실행합니다. Vercel 빌드 명령은 `npm run build`입니다. 현재 `package.json`에는 로컬 웹 서버 시작 명령이 없습니다.
+- 중지: 위 로컬 명령은 작업이 끝나면 종료되고, 진행 중이면 터미널에서 Ctrl+C로 중단합니다. 승인 기기의 접근을 중지하려면 로그인 후 해당 기기의 **승인 취소** 기능을 사용합니다. 서버리스 함수 메모리에 둔 10단계 복구 연습 상태는 함수 재시작 뒤 유지되지 않습니다.
 - 복구 연습: `npm run test:stage10`으로 구현된 가상 fixture의 미리보기·복원·재시험을 확인합니다. `POST /api/restore`는 심판 B의 검증된 JWT와 지정된 가상 fixture에 한정되며 운영 DB의 실제 백업 복구가 아닙니다.
 - 시험: `npm test`, `npm run detect`, `npm run decider`, `npm run fixture:7`, `npm run build -- --local`, `git diff --check`, `npm run bundle`을 실행합니다. `npm run verify:stage12`는 실제 로컬 API 핸들러 응답만 검증표에 쓰고 미실행 사례는 `NOT_RUN`으로 남깁니다. `npm run bundle`은 깨끗한 커밋과 별도의 무시된 `bundle-notes.json`이 필요하며 외부 요청은 보내지 않습니다.
 
-로그인 후 **탈환 작전실**은 `GET /api/operations` 응답에서 현재 기기 상태와 기록된 시험 수를 표시합니다. 이 경로는 기존 `/api/device` 함수에 연결되므로 함수 수를 늘리지 않습니다. 규칙·탐지·회수의 ALEPH SDP 엔진 운영 판정 자료는 연결되지 않았으므로 `NOT_RUN` 또는 `UNKNOWN`입니다. 복구 버전의 PASS는 학생 구현의 로컬 fixture 미리보기 API 핸들러 응답에만 해당합니다. 검증표의 41종 공격 시험은 공식 목록과 실측 응답이 없어서 모두 `NOT_RUN`입니다. 표의 요청 ID는 실제 로컬 핸들러 요청에 포함한 시험 상관 ID이며 운영 서버가 발급한 ID가 아닙니다. 화면·기록에는 메모 본문, 쿠키, 토큰, 비밀값을 싣지 않습니다.
+로그인 후 **탈환 작전실**은 `GET /api/operations` 응답에서 현재 기기 상태와 1~11단계의 구체적인 정상·금지 점검 41종을 표시합니다. 이 경로는 기존 `/api/device` 함수에 연결되므로 함수 수를 늘리지 않습니다. 현재 로컬 API 핸들러를 실행해 요청 ID·확인 시각·응답 상태를 얻은 3건만 PASS이며 나머지 38건은 `NOT_RUN`입니다. 이 수치를 임의로 늘리지 않습니다. 규칙·탐지·회수의 ALEPH SDP 엔진 운영 판정 자료는 연결되지 않았으므로 `NOT_RUN` 또는 `UNKNOWN`입니다. 복구 버전의 PASS는 학생 구현의 로컬 fixture 미리보기 API 핸들러 응답에만 해당합니다. 표의 요청 ID는 실제 로컬 핸들러 요청에 포함한 시험 상관 ID이며 운영 서버가 발급한 ID가 아닙니다. 화면·기록에는 메모 본문, 쿠키, 토큰, 비밀값을 싣지 않습니다.
 
-`src/attack-check.mjs`의 격리 실행 경로를 사용하는 `npm run bundle`은 외부 요청을 보내지 않고 두 항목 모두 `observed: "not_run"`으로 기록합니다. 배포 주소에 대한 실제 점검은 별도 검증이며, 이 미실행 기록은 공식 심판 결과가 아닙니다.
+`src/attack-check.mjs`는 배포 주소 형식만 검증합니다. `npm run bundle`은 외부 요청을 보내지 않고 두 항목 모두 `observed: "not_run"`으로 기록합니다. 배포 주소에 대한 실제 점검은 별도 검증이며, 이 미실행 기록은 공식 심판 결과가 아닙니다.
 
-`src/decider.mjs`, `src/detect.mjs`, API, PWA, 검증표와 작전실은 **학생 구현 코드**입니다. `docs/DECIDER_REQUEST.md`와 `docs/DETECT_EVENTS.md`는 제공된 ALEPH SDP 엔진의 요청·사건 계약을 설명합니다. 실제 엔진의 신원 확인, 사건 전달, 회수 집행과 공식 심판 판정은 학생 코드의 로컬 시험 결과로 대체할 수 없습니다.
+`GET /api/operations`의 `sources.student`은 `src/decider.mjs`, `src/detect.mjs`, 자료실 API, PWA 등 **학생 구현 코드**를 가리키고 `sources.engine`은 제공 엔진의 정확한 명칭인 **ALEPH SDP 엔진**입니다. `docs/DECIDER_REQUEST.md`와 `docs/DETECT_EVENTS.md`는 그 엔진의 요청·사건 계약을 설명합니다. 실제 엔진의 신원 확인, 사건 전달, 회수 집행과 공식 심판 판정은 학생 코드의 로컬 시험 결과로 대체할 수 없습니다.
 
 ## 이전 단계 구현 기록
 

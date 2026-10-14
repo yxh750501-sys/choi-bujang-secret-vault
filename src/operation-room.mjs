@@ -32,7 +32,9 @@ export function operationReport(deviceStatus, evidence = records) {
   const cases = evidence.cases.map(item => ({
     id: item.id,
     stage: item.stage,
+    kind: item.kind,
     name: item.name,
+    request: item.request,
     expected: item.expected,
     actual: safeActual(item),
     requestId: measured(item) ? item.requestId : null,
@@ -45,7 +47,7 @@ export function operationReport(deviceStatus, evidence = records) {
     fail: cases.filter(item => item.status === 'FAIL').length,
     notRun: cases.filter(item => item.status === 'NOT_RUN').length,
   };
-  const recoveryPreview = cases.find(item => item.id === 'stage10_restore_preview');
+  const recoveryPreview = cases.find(item => item.id === 's10_restore_preview');
   return {
     schema: 'byteback.operation.v1',
     evidenceCommit: evidence.commit,
@@ -53,6 +55,10 @@ export function operationReport(deviceStatus, evidence = records) {
       studentImplementation: 'BYTE BACK 학생 구현',
       providedEngine: 'ALEPH SDP 엔진',
       localEvidence: 'local-handler',
+    },
+    sources: {
+      student: ['src/decider.mjs', 'src/detect.mjs', 'api/notes.js', 'public/manifest.webmanifest'],
+      engine: 'ALEPH SDP 엔진',
     },
     rules: { ids: [...RULE_IDS], status: 'NOT_RUN', source: 'production-engine-unverified' },
     detection: { status: 'NOT_RUN', source: 'production-events-unavailable' },

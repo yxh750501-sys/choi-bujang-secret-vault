@@ -32,11 +32,14 @@ test('작전실 API 수치는 검증 기록과 같고 현재 기기 상태는 �
   assert.equal(response.getHeader('Cache-Control'), 'no-store');
   assert.equal(response.body.deviceApproval.status, 'approved');
   assert.equal(response.body.provenance.providedEngine, 'ALEPH SDP 엔진');
+  assert.equal(response.body.sources.engine, 'ALEPH SDP 엔진');
+  assert.ok(response.body.sources.student.includes('src/decider.mjs'));
+  assert.ok(response.body.sources.student.includes('src/detect.mjs'));
   assert.deepEqual(response.body.verification.counts, operationReport('approved').verification.counts);
-  assert.equal(response.body.verification.cases.length, 63);
+  assert.equal(response.body.verification.cases.length, 41);
   assert.equal(response.body.verification.counts.pass, 3);
   assert.equal(response.body.verification.counts.fail, 0);
-  assert.equal(response.body.verification.counts.notRun, 60);
+  assert.equal(response.body.verification.counts.notRun, 38);
   assert.equal(response.body.recovery.source, 'local-handler-fixture');
   assert.equal(response.body.revocation.status, 'UNKNOWN');
   assert.equal(response.body.rules.status, 'NOT_RUN');
@@ -46,15 +49,19 @@ test('작전실 API 수치는 검증 기록과 같고 현재 기기 상태는 �
     .every(item => item.requestId && item.checkedAt && item.actual?.httpStatus));
 });
 
-test('미인증 작전실은 거부되고 미실행 41건은 PASS가 아니다', async () => {
+test('미인증 작전실은 거부되고 미실행 항목은 PASS가 아니다', async () => {
   const handler = createDeviceHandler();
   const response = responseMock();
   await handler({ method: 'GET', url: '/api/operations', headers: {} }, response);
   assert.equal(response.statusCode, 401);
   assert.equal(response.body.error, 'AUTHENTICATION_REQUIRED');
-  const attacks = evidence.cases.filter(item => item.id.startsWith('attack_'));
-  assert.equal(attacks.length, 41);
-  assert.ok(attacks.every(item => item.status === 'NOT_RUN' && item.actual === null
+  assert.equal(evidence.cases.length, 41);
+  assert.deepEqual([...new Set(evidence.cases.map(item => item.stage))],
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+  assert.ok(evidence.cases.every(item => item.kind && item.request && item.expected));
+  const notRun = evidence.cases.filter(item => item.status === 'NOT_RUN');
+  assert.equal(notRun.length, 38);
+  assert.ok(notRun.every(item => item.actual === null
     && item.requestId === null && item.checkedAt === null));
   assert.ok(evidence.cases.filter(item => item.status === 'PASS').every(item =>
     item.actual && item.requestId && item.checkedAt && item.environment === 'local-handler'));

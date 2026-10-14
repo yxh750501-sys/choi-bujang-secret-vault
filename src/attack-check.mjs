@@ -1,9 +1,6 @@
-// The student changes this check as each stage adds an attack to the same app.
+// The isolated judge does not provide request evidence for these checks.
 // Never return tokens, private keys, real names, or note bodies.
-export async function runAttackChecks(config, {
-  allowNetwork = false,
-  fetchImpl = globalThis.fetch,
-} = {}) {
+export async function runAttackChecks(config) {
   if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(config.step)) throw new Error('2~12단계 공격 점검은 aleph.config.json의 step이 2~12이어야 합니다.');
   let app;
   try {
@@ -26,61 +23,5 @@ export async function runAttackChecks(config, {
     expected: '비로그인 API 요청에서 메모 없이 구조화된 JSON 401 또는 403',
     observed: 'not_run',
   });
-  // 격리된 심판 실행에서는 외부 요청을 보내지 않습니다. 로컬 묶음 생성만 명시적으로 허용합니다.
-  if (!allowNetwork) return checks;
-
-  let response;
-  try {
-    response = await fetchImpl(new URL('/data.json', app), {
-      redirect: 'error', signal: AbortSignal.timeout(10000),
-    });
-  } catch {
-    response = null;
-  }
-  if (response) {
-    let safeEmptyResponse = response.status === 404 || response.status === 410;
-    let notesExposed = false;
-    if (response.ok) {
-      try {
-        const data = await response.json();
-        const keys = Object.keys(data);
-        notesExposed = Array.isArray(data?.notes) && data.notes.length > 0;
-        safeEmptyResponse = Array.isArray(data?.notes) && data.notes.length === 0
-          && keys.every(key => key === 'notes' || key === 'sampleMarker')
-          && (data.sampleMarker === undefined || data.sampleMarker === config.sampleMarker);
-      } catch {
-        // An unparseable success response cannot confirm that notes are private.
-      }
-    }
-    checks[0].observed = notesExposed
-      ? '비로그인 요청에서 공개 메모가 노출됨'
-      : safeEmptyResponse
-        ? `비로그인 요청에서 공개 메모가 없음 (HTTP ${response.status})`
-        : `비로그인 요청에서 안전한 빈 자료 응답을 확인하지 못함 (HTTP ${response.status})`;
-  }
-  if (config.step >= 3) {
-    let apiResponse;
-    try {
-      apiResponse = await fetchImpl(new URL('/api/notes', app), {
-        redirect: 'error', signal: AbortSignal.timeout(10000),
-      });
-    } catch {
-      apiResponse = null;
-    }
-    if (!apiResponse) return checks;
-    let structuredDenial = false;
-    if ([401, 403].includes(apiResponse.status)
-        && /^application\/json(?:;|$)/iu.test(apiResponse.headers.get('content-type') || '')) {
-      try {
-        const body = await apiResponse.json();
-        structuredDenial = typeof body?.error === 'string' && !Object.hasOwn(body, 'notes');
-      } catch {
-        // Invalid JSON cannot confirm that the anonymous API request was denied safely.
-      }
-    }
-    checks[1].observed = structuredDenial
-      ? `비로그인 API 요청이 JSON 오류로 거부됨 (HTTP ${apiResponse.status})`
-      : `비로그인 API 요청의 안전한 JSON 거부를 확인하지 못함 (HTTP ${apiResponse.status})`;
-  }
   return checks;
 }
