@@ -36,10 +36,26 @@ try {
     if (error.message?.startsWith('origin 주소가') || error.message?.startsWith('GitHub HTTPS')) throw error;
     fail('GitHub HTTPS 저장소 주소를 origin으로 등록해 주세요.');
   }
-  const changedFiles = git('diff-tree', '--root', '--no-commit-id', '--name-only', '--no-renames', '-r', commit)
-    .split(/\r?\n/u).filter(Boolean).sort();
-  if (!changedFiles.length) fail('마지막 커밋에 바뀐 파일이 없습니다.');
   const config = fromCommit('aleph.config.json');
+  const history = git('rev-list', '--first-parent', commit)
+    .split(/\r?\n/u).filter(Boolean);
+  let previousStageCommit = null;
+  for (const revision of history.slice(1)) {
+    try {
+      const previous = JSON.parse(git('show', `${revision}:aleph.config.json`));
+      if (Number.isInteger(previous.step) && previous.step < config.step) {
+        previousStageCommit = revision;
+        break;
+      }
+    } catch {
+      // Earlier commits may not contain aleph.config.json.
+    }
+  }
+  const changedFiles = (previousStageCommit
+    ? git('diff', '--name-only', '--no-renames', previousStageCommit, commit)
+    : git('diff-tree', '--root', '--no-commit-id', '--name-only', '--no-renames', '-r', commit))
+    .split(/\r?\n/u).filter(Boolean).sort();
+  if (!changedFiles.length) fail('이번 단계에 바뀐 파일이 없습니다.');
   if (normalizedRepo(config.repoUrl) !== repoUrl) {
     fail('aleph.config.json의 repoUrl이 Git origin 주소와 다릅니다. 같은 저장소 주소로 맞춰 주세요.');
   }
