@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import config from '../aleph.config.json' with { type: 'json' };
+import {
+  createSupabaseDeviceApprovalStore,
+  hashDeviceReference,
+  readDeviceReference,
+} from '../src/device-approval.mjs';
 import { readAccessTokenCookie, verifyCsrfRequest } from '../src/server-session.mjs';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 
@@ -71,6 +76,7 @@ export function createNotesHandler({
   verifierFactory = createLoginVerifier,
   verifierConfig = config,
   clientFactory = createClient,
+  deviceApprovalStoreFactory = createSupabaseDeviceApprovalStore,
   env = process.env,
 } = {}) {
   let verifyAuthorization;
@@ -87,7 +93,7 @@ export function createNotesHandler({
 
     const authorizationHeader = request.headers?.authorization ?? request.headers?.Authorization;
     const hasAuthorizationHeader = authorizationHeader !== undefined && authorizationHeader !== null;
-    const accessCookie = readAccessTokenCookie(request);
+    const accessCookie = readAccessTokenCookie(request, env);
     if (hasAuthorizationHeader && accessCookie.sessionPresent) {
       return jsonError(response, 401, 'AMBIGUOUS_AUTHENTICATION');
     }
@@ -110,7 +116,7 @@ export function createNotesHandler({
     }
 
     if (cookieAuthenticated && ['POST', 'PUT', 'DELETE'].includes(method)) {
-      if (!verifyCsrfRequest(request)) {
+      if (!verifyCsrfRequest(request, { env })) {
         return jsonError(response, 403, 'CSRF_VALIDATION_FAILED');
       }
       if (!validCookieMutationContentType(request, method)) {
@@ -149,6 +155,17 @@ export function createNotesHandler({
     if (!identity || typeof identity.userId !== 'string') {
       return jsonError(response, 401, 'AUTHENTICATION_REQUIRED');
     }
+
+    const deviceReference = readDeviceReference(request, env);
+    if (!deviceReference) return jsonError(response, 403, 'DEVICE_NOT_APPROVED');
+    try {
+      const deviceStore = deviceApprovalStoreFactory({ env, clientFactory });
+      const device = await deviceStore.get(identity.userId, hashDeviceReference(deviceReference));
+      if (device?.status !== 'approved') return jsonError(response, 403, 'DEVICE_NOT_APPROVED');
+    } catch {
+      return jsonError(response, 503, 'DEVICE_STATUS_UNAVAILABLE');
+    }
+
     if (hasId && (typeof pathId !== 'string' || !UUID.test(pathId))) {
       return jsonError(response, 400, 'INVALID_NOTE_ID');
     }

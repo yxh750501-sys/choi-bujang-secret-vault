@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { createNotesHandler } from '../../api/notes.js';
+import { hashDeviceReference } from '../../src/device-approval.mjs';
 import { decide } from '../../src/decider.mjs';
 
 const POLICY_SHA256 = '6b10ef3fee2879431384e551d1c2f4566845ea6931c5b9ee17327be228ec9008';
@@ -10,6 +11,7 @@ const EXPECTED_POLICY_VERSION = 'stage10-safe-policy-fixture-v1';
 const EXPECTED_POLICY_COMMIT = '9dd2379666b36ea1dc3cc5ac021d56b46dae6a16';
 const EXPECTED_NOTE_ID = '623e4567-e89b-42d3-a456-000000000001';
 const EXPECTED_OWNER_ID = '723e4567-e89b-42d3-a456-000000000001';
+const OWNER_API_DEVICE_REFERENCE = Buffer.alloc(32, 8).toString('base64url');
 
 export function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -582,6 +584,13 @@ async function runOwnerApiRetests(state) {
     verifierFactory: () => async authorization => identities.get(authorization) ?? null,
     clientFactory,
     env: { SUPABASE_URL: 'https://memory.test.invalid', SUPABASE_SECRET_KEY: 'memory-only' },
+    deviceApprovalStoreFactory: () => ({
+      async get(_userId, deviceRef) {
+        return deviceRef === hashDeviceReference(OWNER_API_DEVICE_REFERENCE)
+          ? { status: 'approved' }
+          : null;
+      },
+    }),
   });
   const checks = [
     { actor: 'A', note: a, status: 200 },
@@ -603,7 +612,10 @@ async function runOwnerApiRetests(state) {
     await handler({
       method: 'GET',
       query: { id: check.note.id },
-      headers: { authorization: `stage10-internal-${check.actor.toLowerCase()}` },
+      headers: {
+        authorization: `stage10-internal-${check.actor.toLowerCase()}`,
+        cookie: `bb_device_ref=${OWNER_API_DEVICE_REFERENCE}`,
+      },
     }, response);
     const expected = {
       status: check.status,

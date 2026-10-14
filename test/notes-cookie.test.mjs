@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { createNotesHandler } from '../api/notes.js';
 import { createAuthHandlers } from '../src/server-session.mjs';
 import { createLoginVerifier } from '../src/verify-login.mjs';
+import { hashDeviceReference } from '../src/device-approval.mjs';
 
 const userA = '123e4567-e89b-42d3-a456-426614174000';
 const userB = '123e4567-e89b-42d3-a456-426614174001';
@@ -23,6 +24,7 @@ const expiredAccess = accessToken(userA, Math.floor(Date.now() / 1000) - 300);
 const forgedAccess = 'forged-access-token';
 const noteA = '223e4567-e89b-42d3-a456-000000000001';
 const noteB = '223e4567-e89b-42d3-a456-000000000002';
+const deviceReference = Buffer.alloc(32, 6).toString('base64url');
 
 function responseMock() {
   const headers = new Map();
@@ -89,7 +91,15 @@ function createFixture() {
       },
     },
   });
-  const handler = createNotesHandler({ verifierFactory });
+  const handler = createNotesHandler({
+    verifierFactory,
+    env: process.env,
+    deviceApprovalStoreFactory: () => ({
+      async get(_userId, deviceRef) {
+        return deviceRef === hashDeviceReference(deviceReference) ? { status: 'approved' } : null;
+      },
+    }),
+  });
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init = {}) => {
     const url = new URL(input);
@@ -160,6 +170,7 @@ function createFixture() {
       const cookie = rawCookie ?? [
         `__Host-bb_access=${encodeURIComponent(access)}`,
         ...(token ? [`__Host-bb_csrf=${encodeURIComponent(token)}`] : []),
+        `__Host-bb_device_ref=${encodeURIComponent(deviceReference)}`,
       ].join('; ');
       return {
         method,
@@ -255,8 +266,8 @@ test('cookie authentication preserves A/B ownership and CRUD while Bearer remain
       method: 'GET',
       headers: { authorization: `Bearer ${accessA}` },
     });
-    assert.equal(bearer.statusCode, 200);
-    assert.deepEqual(bearer.body.notes.map(note => note.id), [noteA]);
+    assert.equal(bearer.statusCode, 403);
+    assert.deepEqual(bearer.body, { error: 'DEVICE_NOT_APPROVED' });
     assert.ok(fixture.authorizations.includes(accessA));
     assert.doesNotMatch(JSON.stringify([createdA.body, updatedA.body]), /fake-access|sb_secret/u);
   } finally {

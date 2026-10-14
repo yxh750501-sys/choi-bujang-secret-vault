@@ -5,6 +5,7 @@ import { createNotesHandler } from '../api/notes.js';
 import { deploymentIdentity } from '../scripts/deployment-identity.mjs';
 import { runAttackChecks } from '../src/attack-check.mjs';
 import { createAuthController } from '../src/auth-controller.mjs';
+import { hashDeviceReference } from '../src/device-approval.mjs';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 
 const config = {
@@ -27,6 +28,8 @@ const env = {
 };
 const testUserId = '123e4567-e89b-42d3-a456-426614174000';
 const testUserBId = '123e4567-e89b-42d3-a456-426614174001';
+const testDeviceReference = Buffer.alloc(32, 4).toString('base64url');
+const testDeviceReferenceCookies = `bb_device_ref=${testDeviceReference}; __Host-bb_device_ref=${testDeviceReference}`;
 const testToken = `eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.${Buffer
   .from(JSON.stringify({ iss: config.identityProvider.issuer }))
   .toString('base64url')}.mock-signature`;
@@ -36,7 +39,12 @@ const testTokenB = `${Buffer.from('{"alg":"ES256"}').toString('base64url')}.${Bu
 ).toString('base64url')}.mock-b-signature`;
 
 function createTestNotesHandler({ validToken = testToken, userId = testUserId } = {}) {
-  return createNotesHandler({
+  const handler = createNotesHandler({
+    deviceApprovalStoreFactory: () => ({
+      async get(_requestUserId, deviceRef) {
+        return deviceRef === hashDeviceReference(testDeviceReference) ? { status: 'approved' } : null;
+      },
+    }),
     verifierFactory: options => createLoginVerifier({
       ...options,
       judgeKeySet: () => {},
@@ -60,6 +68,14 @@ function createTestNotesHandler({ validToken = testToken, userId = testUserId } 
       },
     }),
   });
+  return async (request, response) => {
+    request.headers ??= {};
+    const cookies = request.headers.cookie ?? '';
+    if (!cookies.includes('bb_device_ref=') && !cookies.includes('__Host-bb_device_ref=')) {
+      request.headers.cookie = `${cookies}${cookies ? '; ' : ''}${testDeviceReferenceCookies}`;
+    }
+    return handler(request, response);
+  };
 }
 
 function mockResponse() {
@@ -93,6 +109,7 @@ test('build identity uses Vercel Git and deployment metadata', () => {
   assert.equal(deploymentIdentity(env, { ...config, step: 8 }).step, 8);
   assert.equal(deploymentIdentity(env, { ...config, step: 9 }).step, 9);
   assert.equal(deploymentIdentity(env, { ...config, step: 10 }).step, 10);
+  assert.equal(deploymentIdentity(env, { ...config, step: 11 }).step, 11);
   assert.throws(() => deploymentIdentity(env, { ...config, step: 3 }));
 });
 
@@ -657,12 +674,12 @@ test('CRUD UI, server-only database privileges, and stage-five routes are config
   assert.equal(configFile.originalApiUrl, 'https://yweroshtkwjziprmgxcx.supabase.co/rest/v1/notes');
   assert.equal(new URL(configFile.originalApiUrl).origin, new URL(configFile.identityProvider.issuer).origin);
   assert.equal(new URL(configFile.originalApiUrl).search, '');
-  assert.match(buildScript, /!\[4, 5, 6, 7, 8, 9, 10\]\.includes\(config\.step\)/u);
-  assert.match(buildScript, /aleph\.config\.json의 step이 4, 5, 6, 7, 8, 9 또는 10이어야 합니다/u);
+  assert.match(buildScript, /!\[4, 5, 6, 7, 8, 9, 10, 11\]\.includes\(config\.step\)/u);
+  assert.match(buildScript, /aleph\.config\.json의 step이 4, 5, 6, 7, 8, 9, 10 또는 11이어야 합니다/u);
   assert.match(buildScript, /공개 data\.json을 생성하지 않았습니다/u);
   assert.match(buildScript, /resolve\(root, 'public', 'aleph\.json'\)/u);
   assert.deepEqual(configFile.allowedRoutes, ['GET /api/notes/:id']);
-  assert.equal(configFile.step, 10);
+  assert.equal(configFile.step, 11);
   assert.equal(deploymentIdentity(env, config).step, 5);
   assert.equal(configFile.identityProvider.audience, 'authenticated');
   assert.match(html, /id="note-form"/u);
