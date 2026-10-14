@@ -1,6 +1,24 @@
 // ALEPH SDP 엔진이 확인한 요청만 받는 학생 판정기입니다.
 // 계약에 있는 값만 사용하고, 브라우저가 보낸 사용자/기기/위치 정보를 믿지 않습니다.
-export const RULE_IDS = Object.freeze(['device_registered', 'step_up_required']);
+export const RULE_IDS = Object.freeze([
+  'device_registered',
+  'resource_boundary',
+  'step_up_required',
+]);
+
+function isAllowedResourceRequest(request) {
+  if (request?.method !== 'GET' || request.queryLength !== 0
+      || typeof request.path !== 'string') return false;
+
+  if (request.service === 'announcements') {
+    return request.path === '/announcements' && request.route === 'GET /announcements';
+  }
+  if (request.service !== 'notes' || request.route !== 'GET /notes/:id') return false;
+
+  const match = /^\/notes\/([^/%?#\\]+)$/u.exec(request.path);
+  return Boolean(match && match[1] !== '.' && match[1] !== '..'
+    && !/[\u0000-\u0020\u007f]/u.test(match[1]));
+}
 
 function isSuspiciousRequest(request) {
   const signals = request?.signals;
@@ -41,6 +59,16 @@ export async function decide(request) {
       decision: 'deny',
       reasonCode: 'device_not_registered',
       ruleIds: ['device_registered'],
+    };
+  }
+
+  response.ruleIds = ['device_registered', 'resource_boundary'];
+  if (!isAllowedResourceRequest(request)) {
+    return {
+      ...response,
+      decision: 'deny',
+      reasonCode: 'resource_access_denied',
+      ruleIds: ['device_registered', 'resource_boundary'],
     };
   }
 

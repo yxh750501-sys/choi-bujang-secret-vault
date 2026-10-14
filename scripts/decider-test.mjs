@@ -90,6 +90,67 @@ export async function checkDecider({ decide, ruleIds }) {
       && response.reasonCode === item.reasonCode;
     results.push({ name: item.name, passed: valid });
   }
+  const resourceRequests = [
+      { name: '개별 메모의 비 UUID 경로 허용', request: { ...normal, path: '/notes/fictional-id' },
+        decision: 'allow', reasonCode: 'approved' },
+      { name: '메모 전체 목록 거부', request: { ...normal, path: '/notes', route: 'GET /notes' },
+        decision: 'deny', reasonCode: 'resource_access_denied' },
+      { name: '메모 ID 누락 거부', request: { ...normal, path: '/notes/', route: 'GET /notes/:id' },
+        decision: 'deny', reasonCode: 'resource_access_denied' },
+      { name: '추가 경로 구간 거부', request: { ...normal, path: '/notes/demo/export' },
+        decision: 'deny', reasonCode: 'resource_access_denied' },
+      { name: '인코딩 경로 구간 거부', request: { ...normal, path: '/notes/demo%2Fexport' },
+        decision: 'deny', reasonCode: 'resource_access_denied' },
+      ...['POST', 'PUT', 'PATCH', 'DELETE'].map(method => ({
+        name: `메모 ${method} 쓰기 거부`,
+        request: { ...normal, method },
+        decision: 'deny',
+        reasonCode: 'resource_access_denied',
+      })),
+      { name: '다른 route 이름 거부', request: { ...normal, route: 'GET /notes/:other' },
+        decision: 'deny', reasonCode: 'resource_access_denied' },
+      { name: '쿼리 선택 요청 거부', request: { ...normal, queryLength: 6 },
+        decision: 'deny', reasonCode: 'resource_access_denied' },
+      { name: '반 공지 정확한 GET 허용', request: { ...normal, service: 'announcements',
+        path: '/announcements', route: 'GET /announcements' },
+      decision: 'allow', reasonCode: 'approved' },
+      ...['POST', 'PUT', 'PATCH', 'DELETE'].map(method => ({
+        name: `반 공지 ${method} 쓰기 거부`,
+        request: { ...normal, service: 'announcements', method,
+          path: '/announcements', route: `${method} /announcements` },
+        decision: 'deny',
+        reasonCode: 'resource_access_denied',
+      })),
+      { name: '반 공지 쿼리 우회 거부', request: { ...normal, service: 'announcements',
+        path: '/announcements', route: 'GET /announcements', queryLength: 1 },
+      decision: 'deny', reasonCode: 'resource_access_denied' },
+      { name: '반 공지 추가 경로 거부', request: { ...normal, service: 'announcements',
+        path: '/announcements/export', route: 'GET /announcements/:action' },
+      decision: 'deny', reasonCode: 'resource_access_denied' },
+      { name: '반 공지 유사 경로 거부', request: { ...normal, service: 'announcements',
+        path: '/announcements-extra', route: 'GET /announcements-extra' },
+      decision: 'deny', reasonCode: 'resource_access_denied' },
+      { name: '강사 자료 경로 거부', request: { ...normal, service: 'materials',
+        path: '/materials/lesson', route: 'GET /materials/:id' },
+      decision: 'deny', reasonCode: 'resource_access_denied' },
+      { name: '반 공지 미등록 기기 거부', request: { ...normal, service: 'announcements',
+        path: '/announcements', route: 'GET /announcements', deviceRegistered: false },
+      decision: 'deny', reasonCode: 'device_not_registered' },
+      { name: '추가 인증으로 자원 거부 우회 불가', request: { ...normal, path: '/notes',
+        route: 'GET /notes', stepUp: { verified: true, authAgeSeconds: 60 } },
+      decision: 'deny', reasonCode: 'resource_access_denied' },
+  ];
+  for (const item of resourceRequests) {
+    const response = await decide(item.request);
+    results.push({
+      name: item.name,
+      passed: validResponse(item.request, response, ruleIds)
+        && response.decision === item.decision
+        && response.reasonCode === item.reasonCode
+        && (item.reasonCode !== 'resource_access_denied'
+          || response.ruleIds.includes('resource_boundary')),
+    });
+  }
   return results;
 }
 

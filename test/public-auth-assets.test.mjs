@@ -67,6 +67,7 @@ test('public browser and build sources do not publish a Supabase key while serve
   assert.match(packageFile, /"@supabase\/supabase-js"/u);
   assert.ok(configFile.step >= 5, '5단계 이상의 인증 구성이 유지되어야 합니다');
   assert.ok(configFile.step >= 6, '현재 자료실 설정은 6단계 이상이어야 합니다');
+  assert.equal(configFile.step, 8, '현재 자료실 설정은 8단계여야 합니다');
   assert.equal(configFile.originalApiUrl, 'https://yweroshtkwjziprmgxcx.supabase.co/rest/v1/notes');
   assert.deepEqual(vercelFile.headers[0].headers.find(header =>
     header.key === 'X-Content-Type-Options'), {
