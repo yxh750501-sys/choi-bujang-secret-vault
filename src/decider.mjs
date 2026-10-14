@@ -3,23 +3,27 @@
 export const RULE_IDS = Object.freeze(['device_registered', 'step_up_required']);
 
 function isSuspiciousRequest(request) {
-  const signals = request?.signals ?? {};
+  const signals = request?.signals;
+  if (!signals || signals.source !== 'judge_fixture') return false;
+
   const recentEvents = Array.isArray(request?.recentEvents) ? request.recentEvents : [];
   const hour = signals.hour;
-  const riskEvent = recentEvents.some(event => (
+  const unusualHour = typeof hour === 'number' && Number.isInteger(hour)
+    && hour >= 0 && hour <= 23 && (hour < 6 || hour > 22);
+  const bulkLookup = recentEvents.some(event => (
     event && typeof event === 'object'
     && event.kind === 'risk_signal'
     && typeof event.ageSeconds === 'number'
     && Number.isFinite(event.ageSeconds)
+    && event.ageSeconds >= 0
     && event.ageSeconds <= 300
     && typeof event.count === 'number'
     && Number.isFinite(event.count)
-    && event.count > 0
+    && Number.isInteger(event.count)
+    && event.count >= 10
   ));
-  return signals.region === 'foreign'
-    || signals.network === 'unusual'
-    || (typeof hour === 'number' && Number.isInteger(hour) && (hour < 6 || hour > 22))
-    || riskEvent;
+
+  return unusualHour && signals.network === 'unusual' && bulkLookup;
 }
 
 export async function decide(request) {

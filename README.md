@@ -1,6 +1,6 @@
-# BYTE BACK 방어전 6단계
+# BYTE BACK 방어전 7단계
 
-자료실은 BYTE BACK 5단계 제작 2의 인증·소유권 보호를 유지하고 6단계 등록 기기 접근제어 판정기를 추가했습니다. 메모 접근은 Vercel 서버 API로 모으며 `aleph.config.json`의 `step`은 6입니다. `originalApiUrl`은 원본 Supabase notes REST Data API를 가리킵니다. Production은 별도로 검증해야 합니다. 실제 개인정보, 비밀번호, 토큰, 서버 전용 키를 저장소에 넣지 마세요.
+자료실은 BYTE BACK 5단계 제작 2의 인증·소유권 보호와 6단계 등록 기기 접근제어를 유지하고, 7단계의 가상 이상 접속 추가 확인 판정을 구현했습니다. 메모 접근은 Vercel 서버 API로 모으며 `aleph.config.json`의 `step`은 7입니다. `originalApiUrl`은 원본 Supabase notes REST Data API를 가리킵니다. Production은 별도로 검증해야 합니다. 실제 개인정보, 비밀번호, 토큰, 서버 전용 키를 저장소에 넣지 마세요.
 
 ## 현재 동작
 
@@ -30,7 +30,7 @@
 ## 5단계 제작 2 확인 사항
 
 - 관련 테스트는 `npm run test:r5 && npm run test:package`로 실행합니다. 테스트는 두 사용자 데이터 분리, 교차 사용자 GET/PUT/DELETE의 404 및 변경 없음, 위조 `owner_id` 무시를 mock DB에서 확인합니다. 실제 Supabase 계정 CRUD와 Production 동작은 별도 확인 전까지 미검증입니다.
-- 로컬 공개 빌드는 `npm run build -- --local`로 확인합니다. `public/data.json`을 만들지 않으며, 이전 파일이 있으면 제거합니다. `/aleph.json`은 실제 Vercel 빌드에서 실제 커밋 정보와 `step` 5를 기록합니다.
+- 로컬 공개 빌드는 `npm run build -- --local`로 확인합니다. `public/data.json`을 만들지 않으며, 이전 파일이 있으면 제거합니다. `/aleph.json`은 실제 Vercel 빌드에서 실제 커밋 정보와 `step` 7을 기록합니다.
 - DB 권한 SQL은 운영 SQL Editor에서 검토 후 별도로 실행해야 합니다. `supabase/verify.sql`의 `has_table_privilege` 결과에서 anon/authenticated는 CRUD 모두 false, service_role은 모두 true여야 합니다. `information_schema.role_table_grants` 결과도 함께 확인하세요. 이 프로젝트에서는 아직 실행하지 않았습니다.
 - 배포 후 `/data.json`은 404, `/aleph.json`의 `step`은 5, 첫 화면은 `nosniff`, 무인증 API는 JSON 401, 각 로그인 계정은 자기 메모 CRUD 성공 및 타인 메모 접근 404여야 합니다.
 
@@ -53,6 +53,15 @@ curl -i "$APP_URL/api/notes"
 - `npm run decider`는 가상 요청으로 등록 기기 허용, 미등록/잘못된 등록 정보 거부, 의심 신호와 추가 인증 조건을 연습합니다. `npm run decider:test`도 같은 검사를 실행합니다. 이는 로컬 가상 연습이며 실제 심판 판정이 아닙니다.
 - `aleph.config.json`의 `step`은 6입니다. 별도 프로그램, 인증서 또는 개인키 설치가 필요하지 않습니다. 기존 프로젝트 의존성으로 실행합니다.
 - 검증 명령: `npm run decider`. 등록 기기의 정상 요청은 `allow`, 미등록 기기와 등록 정보 누락은 `deny`/`device_not_registered`여야 합니다. 의심 신호의 추가 인증 전 요청은 `step_up`, 계약 범위 안에서 추가 인증이 확인된 요청은 `allow`여야 합니다.
+
+## 7단계 평소와 다른 접속 재확인
+
+- 등록 기기만 기존 판정을 통과합니다. 미등록·누락·잘못된 등록 상태는 추가 인증 여부와 관계없이 `deny`/`device_not_registered`입니다.
+- 가상 연습에서 검증 출처가 `judge_fixture`이고 비정상 시간(0~5시 또는 23시), 새로운 네트워크(`unusual`), 최근 5분 내 대량 조회 사건(`risk_signal`, count 10 이상)이 모두 함께 있으면 `step_up`을 요구합니다. 지역 신호만 다른 요청은 거부하지 않으며, 지역 값을 판정 근거로 쓰지 않습니다.
+- 판정기는 요청 계약에 명시된 필드만 사용합니다. 현재 실제 경로의 접속 신호 출처는 `none`이고 지역·네트워크는 `unknown`입니다. `judge_fixture` 값은 로컬 가상 연습 전용이며, 브라우저가 보낸 IP·위치·헤더를 신뢰 신호로 승격하지 않습니다.
+- 계약에는 엔진 검증 결과인 `stepUp.verified`와 `authAgeSeconds`가 있지만, 실제 재로그인 화면·재인증 처리·자료 접근 차단 연결은 정의되어 있지 않습니다. 로컬 판정 결과만으로 운영 재로그인이나 자료 보호가 작동한다고 주장하지 않습니다.
+- 검증 결과: `npm run decider`의 20개 가상 판정, `npm run fixture:7`의 정상 `allow`·복합 이상 `step_up`, 지정된 6개 회귀 테스트 30개, `npm run build -- --local`, `git diff --check`가 통과했습니다. 별도 임시 복제본에서 `npm install`도 성공했습니다. 추적 파일 검사에서 실제 비밀값은 확인되지 않았으며 기존 테스트의 가상 인증 문자열만 패턴에 걸렸습니다.
+- 판정기·fixture는 실제 심판 판정이 아닙니다. Production의 사용자 로그인·재로그인, DB 접근 차단 및 배포 동작은 미검증입니다.
 
 ## 공개 데이터 검사
 

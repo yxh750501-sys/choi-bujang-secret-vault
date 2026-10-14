@@ -22,7 +22,7 @@ function validResponse(request, response, ruleIds) {
 export async function checkDecider({ decide, ruleIds }) {
   if (typeof decide !== 'function' || !Array.isArray(ruleIds)
       || !ruleIds.includes('device_registered')) {
-    throw new Error('6단계 device_registered 규칙을 먼저 구현하고 RULE_IDS에 적어 주세요.');
+    throw new Error('device_registered 규칙을 먼저 구현하고 RULE_IDS에 적어 주세요.');
   }
   const { normal, suspicious } = fixtureRequests();
   const checks = [
@@ -40,6 +40,16 @@ export async function checkDecider({ decide, ruleIds }) {
     checks.push(
       { name: '복합 이상 접속', request: suspicious, decision: 'step_up',
         reasonCode: 'step_up_required' },
+      { name: '지역 정보만 다른 접속', request: { ...normal, requestId: randomUUID(),
+        signals: { ...normal.signals, region: 'foreign' } },
+      decision: 'allow', reasonCode: 'approved' },
+      { name: '검증 출처가 없는 이상 신호', request: { ...suspicious,
+        requestId: randomUUID(), signals: { ...suspicious.signals, source: 'none' } },
+      decision: 'allow', reasonCode: 'approved' },
+      { name: '대량 조회가 없는 이상 신호', request: { ...suspicious,
+        requestId: randomUUID(), recentEvents: [{ kind: 'risk_signal',
+          ageSeconds: 60, count: 1 }] },
+      decision: 'allow', reasonCode: 'approved' },
       { name: '추가 인증이 있어도 미등록 기기는 거부', request: { ...suspicious,
         requestId: randomUUID(), deviceRegistered: false,
         stepUp: { verified: true, authAgeSeconds: 60 } },
