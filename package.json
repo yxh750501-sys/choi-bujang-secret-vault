@@ -13,7 +13,6 @@
     "decider:test": "node scripts/decider-test.mjs",
     "detect:test": "node scripts/detect-test.mjs",
     "fixture:7": "node scripts/fixture-7.mjs",
-    "verify:stage12": "node scripts/verify-stage12.mjs",
     "test:stage10": "node --test test/stage10-recovery.test.mjs",
     "xdr:run": "node scripts/xdr-run.mjs"
   },

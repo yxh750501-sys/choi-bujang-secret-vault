@@ -121,8 +121,8 @@ test('공격 자기 점검은 배포 주소를 검증하고 미실행 증거만 
     globalThis.fetch = () => { requests += 1; throw new Error('NETWORK_FORBIDDEN'); };
     const attempts = await runAttackChecks({ ...config, step: 12 });
     assert.deepEqual(attempts.map(item => item.attackId),
-      ['anonymous_note_read', 'anonymous_notes_api']);
-    assert.deepEqual(attempts.map(item => item.observed), ['not_run', 'not_run']);
+      ['static_note_read', 'anonymous_list', 'anonymous_get']);
+    assert.deepEqual(attempts.map(item => item.observed), ['not_run', 'not_run', 'not_run']);
     assert.equal(requests, 0);
   } finally {
     globalThis.fetch = originalFetch;
