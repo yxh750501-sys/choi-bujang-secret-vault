@@ -3,16 +3,20 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { resolve } from 'node:path';
 import {
+  createInitialTestRecoveryState,
   getVerifiedBackups,
   previewTestPolicyRestore,
   readTestBackups,
+  runPostRestoreRetests,
   restoreTestMemo,
   restoreTestPolicy,
+  restoreVerifiedTestRecovery,
   sha256,
   verifyNoteBackup,
   verifyPolicyBackup,
 } from './helpers/stage10-recovery.mjs';
 import { createRestoreHandler, default as restoreRoute } from '../api/restore.js';
+import { decide } from '../src/decider.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const policyBackup = JSON.parse(await readFile(
@@ -333,6 +337,14 @@ test('restore endpoint previews version and fields then restores one B test note
   ]);
   assert.equal(Object.hasOwn(preview.body.memo, 'body'), false);
   assert.equal(preview.body.persistence, 'serverless-memory-only');
+  assert.deepEqual(preview.body.postRestoreRetests, {
+    executed: 0,
+    passed: 0,
+    failed: 0,
+    skipped: 0,
+    status: 'not_run',
+    cases: [],
+  });
   assert.equal(backupReads, 1);
 
   const restored = await invoke('restore');
@@ -340,6 +352,24 @@ test('restore endpoint previews version and fields then restores one B test note
   assert.equal(restored.body.restored, true);
   assert.equal(restored.body.persistence, 'serverless-memory-only');
   assert.equal(backupReads, 3, 'restore rereads both backup files before applying');
+  const retests = restored.body.postRestoreRetests;
+  assert.equal(retests.status, 'pass');
+  assert.equal(retests.executed, 18);
+  assert.equal(retests.passed, 18);
+  assert.equal(retests.failed, 0);
+  assert.equal(retests.skipped, 0);
+  assert.equal(retests.cases.length, 18);
+  assert.equal(retests.cases.find(item => item.id === 'registered_note_get').actual.decision, 'allow');
+  assert.equal(retests.cases.find(item => item.id === 'notes_list').actual.decision, 'deny');
+  assert.equal(retests.cases.find(item =>
+    item.id === 'suspicious_request_requires_step_up').actual.decision, 'step_up');
+  assert.deepEqual(retests.cases.filter(item => item.environment === 'server-mock')
+    .map(item => [item.id, item.status]), [
+    ['api_owner_a_own_note', 'pass'],
+    ['api_owner_a_other_note', 'pass'],
+    ['api_owner_b_own_note', 'pass'],
+    ['api_owner_b_other_note', 'pass'],
+  ]);
   const state = runs.get('run-restore').state;
   const restoredMemo = state.notes.find(note => note.id === targetNoteId);
   assert.equal(restoredMemo.ownerId, targetOwnerId);
@@ -347,7 +377,107 @@ test('restore endpoint previews version and fields then restores one B test note
   assert.equal(state.notes.length, 2);
   assert.equal(state.notes.some(note => note.ownerId === '923e4567-e89b-42d3-a456-000000000001'), true);
   assert.equal(state.audit[0].action, 'test_fixture_initialized');
-  assert.equal(state.audit.length, 3);
+  assert.equal(state.audit.length, 4);
+  assert.deepEqual(state.audit.at(-1).cases, retests.cases);
+});
+
+test('retests invoke the real decider against the restored candidate and failures do not commit it', async () => {
+  const runs = new Map();
+  let calls = 0;
+  let candidateWasRestoredBeforeRetest = true;
+  const handler = createRestoreHandler({
+    verifyAuthorization: async () => ({
+      kind: 'judge', identity: 'b', userId: targetOwnerId, runId: 'run-retest-failure',
+    }),
+    readBackups: async () => ({
+      policy: structuredClone(policyBackup),
+      memo: structuredClone(noteBackup),
+    }),
+    runRetests: state => runPostRestoreRetests(state, {
+      decideRequest: async request => {
+        calls += 1;
+        candidateWasRestoredBeforeRetest &&= state.noteId === targetNoteId
+          && state.notes.some(note => note.id === targetNoteId
+            && note.ownerId === targetOwnerId
+            && sha256(note.body) === noteBackup.note.contentSha256)
+          && state.policies.notes.ownerIsolation === true;
+        const actual = await decide(request);
+        return request.service === 'teacher'
+          ? { ...actual, decision: 'allow', reasonCode: 'approved' }
+          : actual;
+      },
+    }),
+    runs,
+  });
+  const result = mockResponse();
+  await handler({
+    method: 'POST',
+    headers: { authorization: 'Bearer local-judge-b', 'content-type': 'application/json' },
+    body: { action: 'restore', noteId: targetNoteId },
+  }, result.response);
+  assert.equal(result.statusCode, 409);
+  assert.equal(result.body.restored, false);
+  assert.equal(result.body.status, 'fail');
+  assert.equal(result.body.postRestoreRetests.failed, 1);
+  assert.equal(result.body.postRestoreRetests.passed, 17);
+  assert.equal(calls, 12);
+  assert.equal(candidateWasRestoredBeforeRetest, true);
+  const state = runs.get('run-retest-failure').state;
+  assert.equal(state.notes.some(note => note.id === targetNoteId), false);
+  assert.equal(state.policies.notes.ownerIsolation, false);
+  assert.equal(state.audit.at(-1).status, 'fail');
+  assert.deepEqual(state.audit.at(-1).cases, result.body.postRestoreRetests.cases);
+});
+
+test('retest exceptions and runner-level skips are recorded and never reported as pass', async () => {
+  const state = {
+    ...restoreVerifiedTestRecovery(
+      createInitialTestRecoveryState(), { policy: policyBackup, memo: noteBackup }, targetNoteId,
+    ).state,
+    noteId: targetNoteId,
+    ownerId: targetOwnerId,
+    contentSha256: noteBackup.note.contentSha256,
+  };
+  const perCaseFailure = await runPostRestoreRetests(state, {
+    decideRequest: async request => {
+      if (request.method === 'PUT') throw new Error('CASE_EXECUTION_ERROR');
+      return decide(request);
+    },
+  });
+  assert.equal(perCaseFailure.status, 'fail');
+  assert.equal(perCaseFailure.cases.find(item => item.id === 'notes_put_denied').status, 'fail');
+  assert.equal(perCaseFailure.cases.find(item => item.id === 'notes_put_denied').errorCode,
+    'CASE_EXECUTION_ERROR');
+  assert.notEqual(perCaseFailure.cases.find(item => item.id === 'notes_put_denied').status, 'pass');
+
+  const runs = new Map();
+  const handler = createRestoreHandler({
+    verifyAuthorization: async () => ({
+      kind: 'judge', identity: 'b', userId: targetOwnerId, runId: 'run-retest-exception',
+    }),
+    readBackups: async () => ({
+      policy: structuredClone(policyBackup),
+      memo: structuredClone(noteBackup),
+    }),
+    runRetests: async () => { throw new Error('RETEST_RUNNER_FAILED'); },
+    runs,
+  });
+  const result = mockResponse();
+  await handler({
+    method: 'POST',
+    headers: { authorization: 'Bearer local-judge-b', 'content-type': 'application/json' },
+    body: { action: 'restore', noteId: targetNoteId },
+  }, result.response);
+  assert.equal(result.statusCode, 409);
+  assert.equal(result.body.restored, false);
+  assert.equal(result.body.postRestoreRetests.status, 'partial');
+  assert.equal(result.body.postRestoreRetests.executed, 0);
+  assert.equal(result.body.postRestoreRetests.failed, 0);
+  assert.equal(result.body.postRestoreRetests.skipped, 1);
+  assert.equal(result.body.postRestoreRetests.cases[0].status, 'not_run');
+  assert.equal(runs.get('run-retest-exception').state.notes
+    .some(note => note.id === targetNoteId), false);
+  assert.equal(runs.get('run-retest-exception').state.audit.at(-1).status, 'partial');
 });
 
 test('missing, tampered, wrong-version or changing backup stops restore without changing state', async () => {
@@ -449,6 +579,7 @@ test('repeat restore is idempotent and unknown memo IDs are rejected', async () 
   assert.equal((await invoke(targetNoteId)).body.restored, true);
   const second = runs.get('run-repeat').state;
   assert.equal(second.notes.length, first.notes.length);
-  assert.equal(second.audit.length, first.audit.length + 2);
-  assert.equal(second.audit.at(-1).outcome, 'already_safe');
+  assert.equal(second.audit.length, first.audit.length + 3);
+  assert.equal(second.audit.findLast(item => item.action === 'memo_restore').outcome, 'already_safe');
+  assert.deepEqual(second.audit.at(-1).cases, first.audit.at(-1).cases);
 });

@@ -6,6 +6,7 @@ import {
   getVerifiedBackups,
   previewTestRecovery,
   readTestBackups,
+  runPostRestoreRetests,
   restoreVerifiedTestRecovery,
 } from '../test/helpers/stage10-recovery.mjs';
 
@@ -61,6 +62,7 @@ function pruneRuns(runs, now) {
 export function createRestoreHandler({
   verifyAuthorization,
   readBackups = readTestBackups,
+  runRetests = runPostRestoreRetests,
   runs = new Map(),
   now = Date.now,
 } = {}) {
@@ -100,6 +102,9 @@ export function createRestoreHandler({
     try {
       const backups = await readBackups();
       const verified = getVerifiedBackups(backups);
+      if (identity.userId !== verified.memo.ownerId) {
+        return json(response, 403, { error: 'RESTORE_OWNER_MISMATCH' });
+      }
       pruneRuns(runs, now());
       const entry = runs.get(identity.runId);
       const currentState = entry?.state ?? createInitialTestRecoveryState();
@@ -111,6 +116,14 @@ export function createRestoreHandler({
           policyVersion: preview.policyVersion,
           policyChanges: preview.policyChanges,
           memo: preview.memo,
+          postRestoreRetests: {
+            executed: 0,
+            passed: 0,
+            failed: 0,
+            skipped: 0,
+            status: 'not_run',
+            cases: [],
+          },
           persistence: 'serverless-memory-only',
         });
       }
@@ -127,15 +140,78 @@ export function createRestoreHandler({
         return json(response, 503, { error: 'BACKUP_CHANGED_DURING_RESTORE' });
       }
 
+      const candidateState = {
+        ...restored.state,
+        noteId: restored.preview.memo.id,
+        ownerId: restored.preview.memo.ownerId,
+        contentSha256: restored.preview.memo.contentSha256,
+      };
+      let retests;
+      try {
+        retests = await runRetests(candidateState);
+      } catch (error) {
+        retests = {
+          executed: 0,
+          passed: 0,
+          failed: 0,
+          skipped: 1,
+          status: 'partial',
+          cases: [{
+            id: 'post_restore_retest_runner',
+            target: 'post-restore retest execution',
+            environment: 'serverless-memory-test-state',
+            executed: false,
+            expected: { status: 'all required retests completed' },
+            actual: null,
+            status: 'not_run',
+            errorCode: typeof error?.message === 'string'
+              && /^[A-Z][A-Z0-9_]{0,63}$/u.test(error.message)
+              ? error.message
+              : 'RETEST_RUNNER_FAILED',
+          }],
+        };
+      }
       const updatedAt = now();
-      runs.set(identity.runId, { state: restored.state, lastUsedAt: updatedAt });
-      return json(response, 200, {
+      const postRestoreAudit = {
+        action: 'post_restore_retest',
+        status: retests.status,
+        executed: retests.executed,
+        passed: retests.passed,
+        failed: retests.failed,
+        skipped: retests.skipped,
+        cases: retests.cases,
+      };
+      const committedState = retests.status === 'pass'
+        ? { ...candidateState, audit: [...candidateState.audit, postRestoreAudit] }
+        : {
+          ...currentState,
+          audit: [...currentState.audit, {
+            action: 'post_restore_retest',
+            status: retests.status,
+            executed: retests.executed,
+            passed: retests.passed,
+            failed: retests.failed,
+            skipped: retests.skipped,
+            cases: retests.cases,
+          }],
+        };
+      runs.set(identity.runId, { state: committedState, lastUsedAt: updatedAt });
+      const success = retests.status === 'pass'
+        && retests.executed === retests.passed
+        && retests.failed === 0
+        && retests.skipped === 0
+        && Array.isArray(retests.cases)
+        && retests.cases.length === retests.executed
+        && retests.cases.every(item => item.executed === true && item.status === 'pass');
+      return json(response, success ? 200 : 409, {
         action: 'restore',
-        restored: true,
+        restored: success,
+        status: success ? 'pass' : retests.status,
         policyVersion: restored.preview.policyVersion,
         policyChanges: restored.preview.policyChanges,
         memo: restored.preview.memo,
-        auditEntriesAdded: 2,
+        postRestoreRetests: retests,
+        auditEntriesAdded: success ? committedState.audit.length - currentState.audit.length : 1,
         persistence: 'serverless-memory-only',
       });
     } catch (error) {

@@ -67,7 +67,12 @@ function reportDiagnostic({ supabaseUrl, secretKey, httpStatus, errorCode }) {
   });
 }
 
-export function createNotesHandler({ verifierFactory = createLoginVerifier, verifierConfig = config } = {}) {
+export function createNotesHandler({
+  verifierFactory = createLoginVerifier,
+  verifierConfig = config,
+  clientFactory = createClient,
+  env = process.env,
+} = {}) {
   let verifyAuthorization;
   return async function handler(request, response) {
     response.setHeader('Cache-Control', 'no-store');
@@ -113,8 +118,8 @@ export function createNotesHandler({ verifierFactory = createLoginVerifier, veri
       }
     }
 
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const secretKey = process.env.SUPABASE_SECRET_KEY;
+    const supabaseUrl = env.SUPABASE_URL;
+    const secretKey = env.SUPABASE_SECRET_KEY;
     if (!supabaseUrl || !secretKey) {
       reportDiagnostic({
         supabaseUrl,
@@ -153,7 +158,7 @@ export function createNotesHandler({ verifierFactory = createLoginVerifier, veri
     if (method === 'PUT' && !validNoteFields(body)) return jsonError(response, 400, 'INVALID_NOTE');
 
     try {
-      const supabase = createClient(supabaseUrl, secretKey, {
+      const supabase = clientFactory(supabaseUrl, secretKey, {
         auth: { autoRefreshToken: false, persistSession: false },
       });
       let result;
