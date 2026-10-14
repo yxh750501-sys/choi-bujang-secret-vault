@@ -1,15 +1,18 @@
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { resolve } from 'node:path';
 import {
+  getVerifiedBackups,
   previewTestPolicyRestore,
+  readTestBackups,
   restoreTestMemo,
   restoreTestPolicy,
   sha256,
   verifyNoteBackup,
   verifyPolicyBackup,
 } from './helpers/stage10-recovery.mjs';
+import { createRestoreHandler, default as restoreRoute } from '../api/restore.js';
 
 const root = resolve(import.meta.dirname, '..');
 const policyBackup = JSON.parse(await readFile(
@@ -18,6 +21,20 @@ const noteBackup = JSON.parse(await readFile(
   new URL('./fixtures/stage10-note.json', import.meta.url), 'utf8'));
 const targetNoteId = '623e4567-e89b-42d3-a456-000000000001';
 const targetOwnerId = '723e4567-e89b-42d3-a456-000000000001';
+
+function mockResponse() {
+  const headers = new Map();
+  let statusCode;
+  let body;
+  const response = {
+    setHeader: (key, value) => headers.set(key.toLowerCase(), value),
+    status: value => {
+      statusCode = value;
+      return { json: value => { body = value; return response; } };
+    },
+  };
+  return { response, headers, get statusCode() { return statusCode; }, get body() { return body; } };
+}
 
 function policyState() {
   return {
@@ -155,8 +172,28 @@ test('unknown IDs, untrusted owners, altered hashes and conflicting rows are rej
       body: 'conflicting row',
       contentSha256: sha256('conflicting row'),
     }],
-  }, noteBackup, targetNoteId), /EXISTING_TARGET_NOTE_CONFLICTS/u);
+  }, noteBackup, targetNoteId), /EXISTING_TARGET_OWNER_CONFLICTS/u);
   assert.deepEqual(state, original);
+});
+
+test('same-owner tampering is repaired while other memo and audit entries stay unchanged', () => {
+  const state = memoState();
+  state.notes.push({
+    id: targetNoteId,
+    ownerId: targetOwnerId,
+    title: 'modified synthetic title',
+    body: 'modified synthetic body',
+    contentSha256: sha256('modified synthetic body'),
+  });
+  const previousAudit = structuredClone(state.audit);
+  const next = restoreTestMemo(state, noteBackup, targetNoteId);
+  const restored = next.notes.find(note => note.id === targetNoteId);
+  assert.equal(restored.title, noteBackup.note.title);
+  assert.equal(restored.ownerId, targetOwnerId);
+  assert.equal(sha256(restored.body), noteBackup.note.contentSha256);
+  assert.deepEqual(next.notes.filter(note => note.id !== targetNoteId), state.notes
+    .filter(note => note.id !== targetNoteId));
+  assert.deepEqual(next.audit.slice(0, previousAudit.length), previousAudit);
 });
 
 test('repeated memo and policy restores are data-idempotent and append-only in audit', () => {
@@ -174,11 +211,244 @@ test('repeated memo and policy restores are data-idempotent and append-only in a
   assert.equal(policyTwice.audit.at(-1).outcome, 'already_safe');
 });
 
-test('no public restore POST route or student policy route was added', async () => {
+test('configured POST route maps to a real handler and fixture reads are fresh', async () => {
   const config = JSON.parse(await readFile(resolve(root, 'aleph.config.json'), 'utf8'));
-  const apiFiles = (await readdir(resolve(root, 'api'), { recursive: true }))
-    .filter(file => /restore/iu.test(file));
-  assert.equal(config.restoreRoute, null);
+  const vercel = JSON.parse(await readFile(resolve(root, 'vercel.json'), 'utf8'));
+  const [method, route] = config.restoreRoute.split(' ');
+  assert.equal(method, 'POST');
+  assert.equal(route, '/api/restore');
+  assert.equal(typeof restoreRoute, 'function');
+  assert.equal(vercel.functions['api/restore.js'].includeFiles, 'test/fixtures/**');
   assert.deepEqual(config.allowedRoutes, ['GET /api/notes/:id']);
-  assert.deepEqual(apiFiles, []);
+
+  let reads = 0;
+  const backups = await readTestBackups(async (path) => {
+    reads += 1;
+    return readFile(path, 'utf8');
+  });
+  assert.equal(reads, 2);
+  assert.equal(getVerifiedBackups(backups).memo.id, targetNoteId);
+
+  const unauthorized = mockResponse();
+  await restoreRoute({
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: { action: 'restore', noteId: targetNoteId },
+  }, unauthorized.response);
+  assert.equal(unauthorized.statusCode, 401);
+  const wrongMethod = mockResponse();
+  await restoreRoute({ method: 'GET', headers: {} }, wrongMethod.response);
+  assert.equal(wrongMethod.statusCode, 405);
+});
+
+test('restore POST requires a server-verified judge B identity and rejects forged role claims', async () => {
+  const calls = [];
+  const handler = createRestoreHandler({
+    verifyAuthorization: async authorization => {
+      calls.push(authorization);
+      if (authorization === 'Bearer local-student') {
+        return { kind: 'student', userId: targetOwnerId };
+      }
+      if (authorization === 'Bearer local-judge-a') {
+        return { kind: 'judge', identity: 'a', userId: targetOwnerId, runId: 'run-a' };
+      }
+      if (authorization === 'Bearer local-judge-b') {
+        return { kind: 'judge', identity: 'b', userId: targetOwnerId, runId: 'run-b' };
+      }
+      return null;
+    },
+  });
+  const invoke = async ({ method = 'POST', authorization, body, headers = {} } = {}) => {
+    const result = mockResponse();
+    await handler({
+      method,
+      headers: {
+        ...(authorization ? { authorization } : {}),
+        'content-type': 'application/json',
+        ...headers,
+      },
+      body,
+    }, result.response);
+    return result;
+  };
+  const missing = await invoke({ body: { action: 'restore', noteId: targetNoteId, role: 'admin' } });
+  assert.equal(missing.statusCode, 401);
+  const student = await invoke({
+    authorization: 'Bearer local-student',
+    body: { action: 'restore', noteId: targetNoteId },
+  });
+  assert.equal(student.statusCode, 403);
+  const judgeA = await invoke({
+    authorization: 'Bearer local-judge-a',
+    body: { action: 'restore', noteId: targetNoteId },
+  });
+  assert.equal(judgeA.statusCode, 403);
+  const forgedRole = await invoke({
+    authorization: 'Bearer local-judge-b',
+    body: { action: 'restore', noteId: targetNoteId, role: 'admin' },
+  });
+  assert.equal(forgedRole.statusCode, 400);
+  const cookieAuth = await invoke({
+    authorization: 'Bearer local-judge-b',
+    headers: { cookie: 'bb_access=some-session' },
+    body: { action: 'restore', noteId: targetNoteId },
+  });
+  assert.equal(cookieAuth.statusCode, 401);
+  const allowedMethod = await invoke({ method: 'GET' });
+  assert.equal(allowedMethod.statusCode, 405);
+  assert.equal(calls.length, 3);
+});
+
+test('restore endpoint previews version and fields then restores one B test note in memory', async () => {
+  const runs = new Map();
+  let backupReads = 0;
+  const handler = createRestoreHandler({
+    verifyAuthorization: async () => ({
+      kind: 'judge', identity: 'b', userId: targetOwnerId, runId: 'run-restore',
+    }),
+    readBackups: async () => {
+      backupReads += 1;
+      return { policy: structuredClone(policyBackup), memo: structuredClone(noteBackup) };
+    },
+    runs,
+  });
+  const invoke = async action => {
+    const result = mockResponse();
+    await handler({
+      method: 'POST',
+      headers: { authorization: 'Bearer local-judge-b', 'content-type': 'application/json' },
+      body: { action, noteId: targetNoteId },
+    }, result.response);
+    return result;
+  };
+
+  const preview = await invoke('preview');
+  assert.equal(preview.statusCode, 200);
+  assert.equal(preview.body.policyVersion, policyBackup.version);
+  assert.deepEqual(preview.body.policyChanges.map(change => change.field), [
+    'ownerIsolation',
+    'registeredDeviceRequired',
+    'resourceBoundary',
+    'riskStepUpRequired',
+  ]);
+  assert.equal(Object.hasOwn(preview.body.memo, 'body'), false);
+  assert.equal(preview.body.persistence, 'serverless-memory-only');
+  assert.equal(backupReads, 1);
+
+  const restored = await invoke('restore');
+  assert.equal(restored.statusCode, 200);
+  assert.equal(restored.body.restored, true);
+  assert.equal(restored.body.persistence, 'serverless-memory-only');
+  assert.equal(backupReads, 3, 'restore rereads both backup files before applying');
+  const state = runs.get('run-restore').state;
+  const restoredMemo = state.notes.find(note => note.id === targetNoteId);
+  assert.equal(restoredMemo.ownerId, targetOwnerId);
+  assert.equal(sha256(restoredMemo.body), noteBackup.note.contentSha256);
+  assert.equal(state.notes.length, 2);
+  assert.equal(state.notes.some(note => note.ownerId === '923e4567-e89b-42d3-a456-000000000001'), true);
+  assert.equal(state.audit[0].action, 'test_fixture_initialized');
+  assert.equal(state.audit.length, 3);
+});
+
+test('missing, tampered, wrong-version or changing backup stops restore without changing state', async () => {
+  const cases = [
+    { code: 'BACKUP_VERIFICATION_FAILED', read: async () => { throw new Error('BACKUP_MISSING'); } },
+    {
+      code: 'BACKUP_VERIFICATION_FAILED',
+      read: async () => ({
+        policy: { ...policyBackup, policies: { ...policyBackup.policies, billing: { access: 'allow' } } },
+        memo: structuredClone(noteBackup),
+      }),
+    },
+    {
+      code: 'BACKUP_VERIFICATION_FAILED',
+      read: async () => ({
+        policy: { ...policyBackup, version: 'wrong-version' },
+        memo: structuredClone(noteBackup),
+      }),
+    },
+  ];
+
+  for (const scenario of cases) {
+    const runs = new Map();
+    const handler = createRestoreHandler({
+      verifyAuthorization: async () => ({
+        kind: 'judge', identity: 'b', userId: targetOwnerId, runId: scenario.code,
+      }),
+      readBackups: scenario.read,
+      runs,
+    });
+    const result = mockResponse();
+    await handler({
+      method: 'POST',
+      headers: { authorization: 'Bearer local-judge-b', 'content-type': 'application/json' },
+      body: { action: 'restore', noteId: targetNoteId },
+    }, result.response);
+    assert.equal(result.statusCode, 503);
+    assert.equal(result.body.error, scenario.code);
+    assert.equal(runs.size, 0);
+  }
+
+  const runs = new Map();
+  let count = 0;
+  const changedDuringRestore = createRestoreHandler({
+    verifyAuthorization: async () => ({
+      kind: 'judge', identity: 'b', userId: targetOwnerId, runId: 'run-changed',
+    }),
+    readBackups: async () => {
+      count += 1;
+      return {
+        policy: structuredClone(policyBackup),
+        memo: count === 1 ? structuredClone(noteBackup) : {
+          ...noteBackup,
+          note: { ...noteBackup.note, title: 'changed after verification' },
+        },
+      };
+    },
+    runs,
+  });
+  const changed = mockResponse();
+  await changedDuringRestore({
+    method: 'POST',
+    headers: { authorization: 'Bearer local-judge-b', 'content-type': 'application/json' },
+    body: { action: 'restore', noteId: targetNoteId },
+  }, changed.response);
+  assert.equal(changed.statusCode, 503);
+  assert.equal(changed.body.error, 'BACKUP_VERIFICATION_FAILED');
+  assert.equal(count, 2, 'backup files must be read again before state is committed');
+  assert.equal(runs.size, 0);
+});
+
+test('repeat restore is idempotent and unknown memo IDs are rejected', async () => {
+  const runs = new Map();
+  const handler = createRestoreHandler({
+    verifyAuthorization: async () => ({
+      kind: 'judge', identity: 'b', userId: targetOwnerId, runId: 'run-repeat',
+    }),
+    readBackups: async () => ({
+      policy: structuredClone(policyBackup),
+      memo: structuredClone(noteBackup),
+    }),
+    runs,
+  });
+  const invoke = async noteId => {
+    const result = mockResponse();
+    await handler({
+      method: 'POST',
+      headers: { authorization: 'Bearer local-judge-b', 'content-type': 'application/json' },
+      body: { action: 'restore', noteId },
+    }, result.response);
+    return result;
+  };
+  const unknown = await invoke('923e4567-e89b-42d3-a456-000000000001');
+  assert.equal(unknown.statusCode, 404);
+  assert.equal(unknown.body.error, 'NOTE_ID_NOT_IN_BACKUP');
+  assert.equal(runs.size, 0);
+  assert.equal((await invoke(targetNoteId)).body.restored, true);
+  const first = runs.get('run-repeat').state;
+  assert.equal((await invoke(targetNoteId)).body.restored, true);
+  const second = runs.get('run-repeat').state;
+  assert.equal(second.notes.length, first.notes.length);
+  assert.equal(second.audit.length, first.audit.length + 2);
+  assert.equal(second.audit.at(-1).outcome, 'already_safe');
 });

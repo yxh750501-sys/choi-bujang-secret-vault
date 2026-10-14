@@ -8,10 +8,13 @@
 - 정책 fixture는 버전·대상 서비스·생성 provenance를 확인하고, fixture의 canonical JSON SHA-256을 테스트 코드에 고정된 기준값과 비교합니다. 메모 fixture도 동일하게 canonical JSON 해시, 지정 ID·가상 소유자, 본문 SHA-256, 레코드 한 건을 검증합니다. 이 코드는 저장소 내 fixture 변조 탐지용 테스트 신뢰점일 뿐, 운영 백업의 출처나 침해 전 상태를 증명하지 않습니다.
 - `npm run test:stage10`은 실제 변경 없는 미리보기와 인메모리 복구를 시험합니다. 선택 대상은 시험 `notes` 정책 하나와 fixture의 가상 메모 ID 하나뿐입니다. 미리보기는 변경 서비스·필드만 보여주며 메모 본문은 출력하지 않습니다. 다른 시험 서비스 정책과 기존 감사 항목은 보존되고, 이미 같은 상태인 반복 복구는 자료를 다시 쓰지 않습니다.
 - 정책 복원 시뮬레이션은 fixture 버전 `stage10-safe-policy-fixture-v1`의 `notes` 정책만 적용하고 나머지 서비스를 보존합니다. 메모 시뮬레이션은 ID `623e4567-e89b-42d3-a456-000000000001`, 소유자 `723e4567-e89b-42d3-a456-000000000001`로 고정된 가상 사본 한 건만 적용하고 복구 뒤 ID·소유자·본문 해시를 재검증합니다. 이 ID들은 운영 계정·메모 ID가 아닙니다.
-- 공개 POST 복구 경로는 추가하지 않았고 `aleph.config.json`의 `restoreRoute`는 `null`, `allowedRoutes`는 기존 `GET /api/notes/:id` 그대로입니다. 관리자 복구 권한 계약과 비운영 전용 DB가 확인되지 않았기 때문입니다. 기존 서버 인증·CSRF·사용자별 `owner_id` 검사는 변경하지 않았습니다.
-- 재검증 순서: `npm run test:stage10`으로 가상 fixture·선택 복구·무결성·감사 보존을 확인하고, 아래 9단계 검증 명령으로 기존 인증·소유권·판정기·탐지기 회귀를 확인합니다. 정상 기대값은 자기 메모 접근과 지정 fixture 복구 성공이며, 타 사용자 메모·무인증 접근·변조/누락 백업·다른 ID는 거부입니다.
-- 실제 검증 결과: `npm run test:stage10` 8개 통과, `npm run detect`, `npm run decider`, `npm run fixture:7`, 지정 회귀 테스트 38개, `npm run build -- --local`, `git diff --check`, 별도 깨끗한 복제본 `npm install` 통과. 이들은 로컬 테스트·가상 사건 결과이며 심판 판정이나 운영 복원이 아닙니다.
-- 미검증: 실제 침해 이전 백업 출처, 운영 정책 버전, 운영 감사 로그·Supabase 메모 해시, 복구 관리자 권한, Production API 동작·배포 및 실계정 A/B 접근 결과. 실제 Supabase DB·운영 정책·Vercel 배포 복구는 수행하지 않았습니다.
+- `restoreRoute`는 `POST /api/restore`이며 Vercel의 `api/restore.js` 서버 함수에 연결됩니다. 복구 요청은 기존 `createLoginVerifier`가 검증한 심판 JWT 중 identity `b`만 허용합니다. 브라우저 세션 쿠키, 학생 토큰, identity `a`, 요청 본문의 role/owner 주장은 권한을 주지 않습니다.
+- 요청 JSON은 `{"action":"preview"|"restore","noteId":"623e4567-e89b-42d3-a456-000000000001"}`만 받습니다. 먼저 `action: preview`로 버전과 정책 변경 필드, 가상 메모 ID·소유자·내용 해시를 확인하고, 명시적 `action: restore` 요청에서 다시 검증한 후 처리합니다. `allowedRoutes`는 학습자 메모 판정 경로이므로 기존 `GET /api/notes/:id`를 유지합니다.
+- 모든 POST 요청은 신뢰 위치의 가상 fixture 두 파일을 디스크에서 새로 읽어 버전·환경·범위와 코드에 고정된 독립 SHA-256 기준을 확인합니다. 복원 요청은 적용 후보를 만든 다음 fixture를 다시 읽고 해시가 처음 읽기와 같은지 확인한 뒤에만 인메모리 상태를 교체합니다. 파일 누락·변조·버전/범위 오류·읽기 사이 변경은 오류 응답으로 중단하고 상태를 적용하지 않습니다.
+- 시험 상태만 서버리스 함수 메모리에 두며 실제 Supabase DB, 운영 정책이나 영속 데이터는 읽거나 변경하지 않습니다. 정확히 지정된 가상 B 메모 한 건만 복구하고 ID·owner ID·본문 SHA-256을 다시 검증합니다. 다른 가상 메모·서비스 정책·기존 감사 항목은 유지하며, 감사에는 본문을 기록하지 않습니다. 이 경로는 운영 복구가 아니며 함수 재시작 뒤 상태가 유지된다고 보장하지 않습니다.
+- 재검증은 `npm run test:stage10`에서 메서드 제한·인증 거부·미리보기·매 요청 재읽기·누락/변조/변경 백업 중단·단건 복원·반복 호출을 mock 기반으로 확인하고, 기존 A/B 메모 소유권 회귀는 지정 API 테스트에서 확인합니다. 정상 기대값은 B 심판의 지정 시험 요청만 복구 요약 반환, 거부 기대값은 무인증·학생·A 심판·임의 ID·잘못된 백업입니다.
+- 실제 검증 결과: `npm run test:stage10` 13개 및 `npm run test` 전체 46개 통과, 지정 1~9단계 회귀 30개 통과, `npm run detect`, `npm run decider`, `npm run fixture:7`, `npm run build -- --local`, `git diff --check` 통과. 탐지·판정 명령은 로컬 가상 연습이며 공식 심판 판정이나 운영 복원을 의미하지 않습니다. 의존성 매니페스트 변경이 없어 이번 보완에서는 `npm install`을 다시 실행하지 않았습니다.
+- 미검증: 과거 침해 이전 운영 백업, 공식 심판의 실제 요청 본문 계약과 운영 관리자 권한, Production Vercel 함수 런타임의 메모리 지속성, Supabase 실제 메모 복구. 실제 Supabase DB·운영 정책·Vercel Production 배포는 수행하지 않았습니다.
 
 ## 9단계 탐지 한계
 

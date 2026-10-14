@@ -76,4 +76,6 @@ test('public browser and build sources do not publish a Supabase key while serve
   });
   assert.equal(vercelFile.rewrites, undefined);
   assert.equal(vercelFile.redirects, undefined);
+  assert.equal(configFile.restoreRoute, 'POST /api/restore');
+  assert.equal(vercelFile.functions['api/restore.js'].includeFiles, 'test/fixtures/**');
 });
