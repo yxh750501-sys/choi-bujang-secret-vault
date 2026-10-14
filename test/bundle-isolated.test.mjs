@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,16 +38,39 @@ test('깨끗한 격리 복제본에서 bundle은 네트워크 없이 미실행 �
       require('node:http').request = deny;
       require('node:https').request = deny;
     `);
+    const realGit = process.env.PATH.split(':').map(dir => join(dir, 'git')).find(existsSync);
+    assert.ok(realGit);
+    const gitAudit = join(temporary, 'git-read.log');
+    const bin = join(temporary, 'bin');
+    run('mkdir', ['-p', bin]);
+    const gitGuard = join(bin, 'git');
+    writeFileSync(gitGuard, `#!/bin/sh
+      command_name="$1"
+      if [ "$command_name" = "-C" ]; then command_name="$3"; fi
+      case "$command_name" in
+        status|rev-parse|config|remote|show|diff-tree) ;;
+        *) echo "UNSUPPORTED_GIT_COMMAND" >&2; exit 91 ;;
+      esac
+      printf '%s\\n' "$command_name" >> "$GIT_AUDIT_LOG"
+      exec "$REAL_GIT_PATH" "$@"
+    `);
+    chmodSync(gitGuard, 0o755);
     run('npm', ['run', 'bundle'], {
       cwd: repository,
-      env: { ...process.env, NODE_OPTIONS: `--require=${guard}`, npm_config_offline: 'true' },
+      env: { ...process.env, NODE_OPTIONS: `--require=${guard}`, npm_config_offline: 'true',
+        PATH: `${bin}:${process.env.PATH}`, REAL_GIT_PATH: realGit, GIT_AUDIT_LOG: gitAudit },
     });
+    const gitCommands = readFileSync(gitAudit, 'utf8').trim().split(/\r?\n/u);
+    assert.ok(gitCommands.includes('diff-tree'));
+    assert.ok(gitCommands.every(command =>
+      ['status', 'rev-parse', 'config', 'remote', 'show', 'diff-tree'].includes(command)));
     const bundle = JSON.parse(readFileSync(join(repository, 'artifacts/submission.json'), 'utf8'));
     assert.equal(bundle.schema, 'aleph.defense.submission.v2');
     assert.equal(bundle.step, 12);
     assert.equal(bundle.commit, run('git', ['-C', repository, 'rev-parse', 'HEAD']));
     assert.equal(bundle.repoUrl, config.repoUrl);
     assert.ok(bundle.changedFiles.includes('scripts/bundle.mjs'));
+    assert.ok(bundle.changedFiles.includes('src/operation-room.mjs'));
     assert.deepEqual(bundle.policyRules, ['device_registered', 'resource_boundary', 'step_up_required']);
     assert.ok(bundle.attackAttempts.length > 0);
     assert.ok(bundle.attackAttempts.every(item => item.observed === 'not_run'));

@@ -10,6 +10,7 @@ const git = (...args) => execFileSync('git', ['-C', root, ...args], {
   env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
 }).trim();
 const fromCommit = (path) => JSON.parse(git('show', `HEAD:${path}`));
+const stage11Commit = '1e06d42f4abb69cad677c159af536d8aa9732553';
 const fail = (message) => { throw new Error(message); };
 const secretPattern = /-----BEGIN [A-Z ]*PRIVATE KEY-----|\bBearer\s+[A-Za-z0-9._~+/-]{16,}|\bsb_secret_[A-Za-z0-9_-]{12,}|\bsk-[A-Za-z0-9_-]{20,}|\beyJ[A-Za-z0-9_-]{12,}\.eyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{8,}|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu;
 const repository = /^https:\/\/github\.com\/([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)\/([A-Za-z0-9._-]{1,100})\/?$/iu;
@@ -38,23 +39,10 @@ try {
     fail('GitHub HTTPS 저장소 주소를 origin으로 등록해 주세요.');
   }
   const config = fromCommit('aleph.config.json');
-  const history = git('rev-list', '--first-parent', commit)
-    .split(/\r?\n/u).filter(Boolean);
-  let previousStageCommit = null;
-  for (const revision of history.slice(1)) {
-    try {
-      const previous = JSON.parse(git('show', `${revision}:aleph.config.json`));
-      if (Number.isInteger(previous.step) && previous.step < config.step) {
-        previousStageCommit = revision;
-        break;
-      }
-    } catch {
-      // Earlier commits may not contain aleph.config.json.
-    }
-  }
-  const changedFiles = (previousStageCommit
-    ? git('diff', '--name-only', '--no-renames', previousStageCommit, commit)
-    : git('diff-tree', '--root', '--no-commit-id', '--name-only', '--no-renames', '-r', commit))
+  const previous = JSON.parse(git('show', `${stage11Commit}:aleph.config.json`));
+  if (previous.step !== 11 || config.step !== 12) fail('11~12단계 기준 커밋과 설정을 확인해 주세요.');
+  const changedFiles = git('diff-tree', '--no-commit-id', '--name-only', '--no-renames',
+    '-r', stage11Commit, commit)
     .split(/\r?\n/u).filter(Boolean).sort();
   if (!changedFiles.length) fail('이번 단계에 바뀐 파일이 없습니다.');
   if (normalizedRepo(config.repoUrl) !== repoUrl) {
