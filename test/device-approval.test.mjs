@@ -503,6 +503,31 @@ test('admin approval API enforces CSRF, Origin, allowlist lookup, and transition
   assert.equal(fixture.store.records.get(`${userB}:${hash}`).rejected_at !== undefined, true);
 });
 
+test('admin approval-store write failures never report approval success', async () => {
+  const store = approvalStore();
+  const referenceHash = hashDeviceReference(deviceReference);
+  store.records.set(`${userA}:${referenceHash}`, {
+    user_id: userA,
+    device_ref: referenceHash,
+    status: 'pending',
+    requested_at: new Date().toISOString(),
+  });
+  store.setStatus = async () => {
+    throw new Error('approval persistence unavailable');
+  };
+  const fixture = createFixture({ store });
+  const csrf = await fixture.csrfToken();
+  const result = await fixture.invoke(fixture.handlers.deviceApprovalAdminHandler,
+    fixture.request('POST', {
+      user: accessAdmin,
+      csrf,
+      body: { action: 'approve', userId: userA, deviceRef: referenceHash },
+    }));
+  assert.equal(result.statusCode, 503);
+  assert.equal(result.body.error, 'DEVICE_APPROVAL_STORE_UNAVAILABLE');
+  assert.equal(store.records.get(`${userA}:${referenceHash}`).status, 'pending');
+});
+
 test('approval-store failures fail closed before any note database access', async () => {
   const fixture = createFixture({ storeFailure: true });
   const reference = deviceReference;
