@@ -46,6 +46,12 @@
     .device-status[data-state="pending"] { background: rgba(196, 154, 62, 0.22); color: #fff0c6; }
     .device-status[data-state="rejected"] { background: rgba(166, 80, 80, 0.28); color: #ffdfe3; }
     .device-status[data-state="unregistered"] { background: rgba(108, 128, 146, 0.22); color: #dfeaf7; }
+    .operation-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+    .operation-grid li { overflow-wrap: anywhere; }
+    .verification-scroll { overflow-x: auto; }
+    .verification-table { width: 100%; border-collapse: collapse; min-width: 700px; }
+    .verification-table th, .verification-table td { border-bottom: 1px solid #51667c; padding: 10px; text-align: left; vertical-align: top; }
+    .verification-table td { overflow-wrap: anywhere; max-width: 240px; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -71,6 +77,21 @@
         <button id="device-revoke-button" type="button" hidden>이 기기 승인 취소</button>
       </div>
       <p id="device-message" role="status" aria-live="polite">로그인 후 기기 승인 상태를 확인합니다.</p>
+    </section>
+    <section id="operation-panel" class="device-panel" aria-labelledby="operation-heading" hidden>
+      <h2 id="operation-heading">탈환 작전실</h2>
+      <p>현재 기기 상태는 서버 응답이며, 검증표는 표시된 환경에서 실제 실행한 응답만 PASS 또는 FAIL로 기록합니다.</p>
+      <button id="operation-refresh" type="button">상태 다시 확인</button>
+      <p id="operation-message" role="status" aria-live="polite">검증 기록을 불러오는 중입니다.</p>
+      <ul id="operation-summary" class="operation-grid"></ul>
+      <h3>1~11단계 통합 검증표와 41종 공격 시험</h3>
+      <p id="verification-counts"></p>
+      <div class="verification-scroll">
+        <table class="verification-table">
+          <thead><tr><th>시험 / 단계</th><th>기대 결과</th><th>실제 API 결과</th><th>요청 ID / 확인 시각</th><th>상태</th></tr></thead>
+          <tbody id="verification-rows"></tbody>
+        </table>
+      </div>
     </section>
     <section id="login-panel" class="auth-panel" aria-labelledby="login-heading">
       <h2 id="login-heading">로그인</h2>

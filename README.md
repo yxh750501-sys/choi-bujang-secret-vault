@@ -1,4 +1,20 @@
-# BYTE BACK 방어전 11단계
+# BYTE BACK 방어전 12단계
+
+## 12단계 운영 안내
+
+검사 기준은 `1e06d42f4abb69cad677c159af536d8aa9732553`(11단계 main)입니다. 이 문서의 아래 1~11단계 시험 수치와 단계별 `step` 문장은 당시의 기록이며, 현재 설정은 `aleph.config.json`의 `step: 12`입니다. 현재 공개 앱 주소는 `https://choi-bujang-secret-vault-jade-alpha.vercel.app`이고, 로그인 발급자·JWKS·원본 API 주소·허용 판정 경로는 `aleph.config.json`의 기존 값을 유지합니다.
+
+- 설치: 새 복제본에서 Node.js 22 이상을 준비하고 `npm install`을 실행합니다. 비밀값은 저장소에 넣지 말고 배포 환경의 비밀 입력란에 설정합니다.
+- 로컬 실행: `npm run build -- --local`로 공개 앱 셸을 빌드합니다. API를 포함한 로컬 서버가 필요하면 Vercel CLI의 `vercel dev`를 해당 프로젝트 설정으로 실행합니다. CLI 실행과 운영 연결은 별도로 확인해야 합니다.
+- 중지: 로컬 서버 터미널에서 Ctrl+C를 누릅니다. 서버리스 함수 메모리에 둔 10단계 복구 연습 상태는 중지·재시작 뒤 유지되지 않습니다.
+- 복구: `POST /api/restore`는 심판 B의 검증된 JWT와 지정된 가상 fixture에 한정됩니다. `preview`로 변경 범위를 확인한 뒤 `restore`를 별도 요청하며, 운영 DB의 실제 백업 복구로 사용하지 않습니다. 오류 시 이전 정상 커밋을 검토해 되돌리고 운영 자료는 보존합니다.
+- 시험: `npm test`, `npm run detect`, `npm run decider`, `npm run fixture:7`, `npm run build -- --local`, `git diff --check`, `npm run bundle`을 실행합니다. `npm run verify:stage12`는 실제 로컬 API 핸들러 응답만 검증표에 쓰고 미실행 사례는 `NOT_RUN`으로 남깁니다. `npm run bundle`은 깨끗한 커밋과 별도의 무시된 `bundle-notes.json`, 배포 접근이 필요합니다.
+
+로그인 후 **탈환 작전실**은 기존 `GET /api/device?view=operation` 응답에서 현재 기기 상태와 기록된 시험 수를 표시합니다. 규칙·탐지·회수의 운영 판정 자료는 연결되지 않았으므로 `NOT_RUN` 또는 `UNKNOWN`입니다. 복구 버전의 PASS는 로컬 fixture 미리보기 API 핸들러 응답에만 해당합니다. 검증표의 41종 공격 시험은 공식 목록과 실측 응답이 없어서 모두 `NOT_RUN`입니다. 표의 요청 ID는 로컬 시험 실행기의 상관 ID이며 운영 서버가 발급한 ID가 아닙니다. 화면·기록에는 메모 본문, 토큰, 비밀값을 싣지 않습니다.
+
+`src/decider.mjs`, `src/detect.mjs`, API, PWA, 검증표와 작전실은 **학생 구현 코드**입니다. `docs/DECIDER_REQUEST.md`와 `docs/DETECT_EVENTS.md`는 제공된 ALEPH SDP 엔진의 요청·사건 계약을 설명합니다. 실제 엔진의 신원 확인, 사건 전달, 회수 집행과 공식 심판 판정은 학생 코드의 로컬 시험 결과로 대체할 수 없습니다.
+
+## 이전 단계 구현 기록
 
 기존 1~10단계의 인증·소유권·복구 기능을 유지하며, 11단계는 설치형 PWA와 서버 측 기기 승인 검사를 추가합니다. `aleph.config.json`의 `step`은 11이며 `public/manifest.webmanifest`와 `public/sw.js`를 통해 설치 안내와 공개 앱 셸의 오프라인 안내를 제공합니다. Service Worker는 인증·기기·메모·복구 API 응답을 캐시하지 않습니다.
 

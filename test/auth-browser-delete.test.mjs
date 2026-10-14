@@ -101,6 +101,8 @@ test('saved note selection enables delete; successful and failed deletion preser
     'note-title', 'note-body', 'save-note', 'delete-note', 'cancel-edit',
     'install-button', 'install-status', 'offline-refresh', 'device-status',
     'device-message', 'device-request-button', 'device-revoke-button',
+    'operation-panel', 'operation-message', 'operation-summary',
+    'operation-refresh', 'verification-counts', 'verification-rows',
   ];
   for (const id of elementIds) elements.set(`#${id}`, new FakeElement(id.includes('form') ? 'form' : 'div'));
   const noteForm = elements.get('#note-form');
@@ -133,6 +135,14 @@ test('saved note selection enables delete; successful and failed deletion preser
     }
     if (path === '/api/device') {
       return jsonResponse({ status: 'approved', approved: true, pending: false });
+    }
+    if (path === '/api/device?view=operation') {
+      return jsonResponse({ schema: 'byteback.operation.v1', evidenceCommit: 'fixture',
+        rules: { ids: [], status: 'NOT_RUN' }, detection: { status: 'NOT_RUN' },
+        revocation: { status: 'UNKNOWN' }, recovery: { status: 'NOT_RUN' },
+        deviceApproval: { status: 'approved' }, verification: {
+          counts: { pass: 0, fail: 0, notRun: 0 }, cases: [],
+        } });
     }
     if (path === '/api/notes' && (options.method ?? 'GET') === 'GET') {
       return jsonResponse({ notes: [...rows.values()] });

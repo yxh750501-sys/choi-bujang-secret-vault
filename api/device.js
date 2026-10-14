@@ -1,4 +1,5 @@
 import config from '../aleph.config.json' with { type: 'json' };
+import { operationReport } from '../src/operation-room.mjs';
 import {
   createSupabaseDeviceApprovalStore,
   hashDeviceReference,
@@ -117,6 +118,9 @@ export function createDeviceHandler({
       const deviceRefHash = hashDeviceReference(deviceRef);
       if (request.method === 'GET') {
         record = await store.get(identity.userId, deviceRefHash);
+        if (request.query?.view === 'operation') {
+          return response.status(200).json(operationReport(record?.status ?? 'unregistered'));
+        }
         return response.status(200).json(statusResponse(record));
       }
       if (body.action === 'request') {
