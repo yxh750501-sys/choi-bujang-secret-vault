@@ -76,7 +76,7 @@ function renderOperationReport(report) {
   for (const item of cases) {
     const row = document.createElement('tr');
     const values = [
-      `${item.name} / ${item.stage ?? '공격 목록'}`,
+      `${item.name} / ${item.request ?? '요청 미기록'}`,
       item.expected,
       item.actual ? `HTTP ${item.actual.httpStatus ?? '응답 없음'} ${item.actual.error ?? item.actual.action ?? ''} ${item.actual.policyVersion ?? ''} (${item.environment})` : '미실행',
       item.requestId ? `${item.requestId} / ${item.checkedAt}` : '미실행',

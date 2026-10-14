@@ -114,84 +114,24 @@ test('build identity uses Vercel Git and deployment metadata', () => {
   assert.throws(() => deploymentIdentity(env, { ...config, step: 3 }));
 });
 
-test('fifth-stage attack check confirms anonymous data is private and API denial is JSON', async () => {
+test('공격 자기 점검은 배포 주소를 검증하고 미실행 증거만 기록한다', async () => {
   const originalFetch = globalThis.fetch;
-  let requestUrl;
-  const requestedUrls = [];
-  let apiOptions;
-  let dataResponse = () => new Response(null, { status: 404 });
-  let jsonApiDenial = true;
-  let apiRequestCount = 0;
+  let requests = 0;
   try {
-    globalThis.fetch = async (url, init) => {
-      requestUrl = String(url);
-      requestedUrls.push(requestUrl);
-      if (new URL(url).pathname === '/api/notes') {
-        apiOptions = init;
-        apiRequestCount += 1;
-        if (!jsonApiDenial) {
-          return new Response('<html>denied</html>', {
-            status: 401,
-            headers: { 'content-type': 'text/html' },
-          });
-        }
-        return new Response(JSON.stringify({ error: 'AUTHENTICATION_REQUIRED' }), {
-          status: 401,
-          headers: { 'content-type': 'application/json; charset=utf-8' },
-        });
-      }
-      return dataResponse();
-    };
-    const [result, apiResult] = await runAttackChecks({ ...config, step: 7 }, { allowNetwork: true });
-    assert.deepEqual(requestedUrls.slice(0, 2), [
-      'https://student-defense.vercel.app/data.json',
-      'https://student-defense.vercel.app/api/notes',
-    ]);
-    assert.equal(requestUrl, 'https://student-defense.vercel.app/api/notes');
-    assert.equal(apiOptions.redirect, 'error');
-    assert.match(result.expected, /메모 0건 또는 404/u);
-    assert.match(result.observed, /공개 메모가 없음/u);
-    assert.equal(apiResult.attackId, 'anonymous_notes_api');
-    assert.match(apiResult.observed, /JSON 오류로 거부됨/u);
-
-    dataResponse = () => new Response(JSON.stringify({ notes: [] }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
-    const [empty] = await runAttackChecks(config, { allowNetwork: true });
-    assert.match(empty.observed, /공개 메모가 없음/u);
-    dataResponse = () => new Response(JSON.stringify({ notes: [{ title: '가상' }] }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
-    const [failed] = await runAttackChecks(config, { allowNetwork: true });
-    assert.match(failed.observed, /메모가 노출됨/u);
-    assert.equal(apiRequestCount, 3);
-
-    jsonApiDenial = false;
-    const [, htmlDenied] = await runAttackChecks(config, { allowNetwork: true });
-    assert.match(htmlDenied.observed, /안전한 JSON 거부를 확인하지 못함/u);
+    globalThis.fetch = () => { requests += 1; throw new Error('NETWORK_FORBIDDEN'); };
+    const attempts = await runAttackChecks({ ...config, step: 12 });
+    assert.deepEqual(attempts.map(item => item.attackId),
+      ['anonymous_note_read', 'anonymous_notes_api']);
+    assert.deepEqual(attempts.map(item => item.observed), ['not_run', 'not_run']);
+    assert.equal(requests, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test('격리된 점검은 외부 요청을 보내지 않고 응답 없는 항목만 not_run으로 남긴다', async () => {
-  let requests = 0;
-  const fetchImpl = async url => {
-    requests += 1;
-    if (new URL(url).pathname === '/data.json') throw new Error('NETWORK_UNAVAILABLE');
-    return new Response(JSON.stringify({ error: 'AUTHENTICATION_REQUIRED' }), {
-      status: 401, headers: { 'content-type': 'application/json' },
-    });
-  };
-  const isolated = await runAttackChecks(config, { fetchImpl });
-  assert.equal(requests, 0);
-  assert.deepEqual(isolated.map(item => item.observed), ['not_run', 'not_run']);
-  const local = await runAttackChecks(config, { allowNetwork: true, fetchImpl });
-  assert.equal(requests, 2);
-  assert.equal(local[0].observed, 'not_run');
-  assert.match(local[1].observed, /HTTP 401/u);
+test('공격 자기 점검은 잘못된 배포 주소를 거부하고 요청하지 않는다', async () => {
+  await assert.rejects(runAttackChecks({ ...config, publicAppUrl: 'http://student-defense.vercel.app' }));
+  await assert.rejects(runAttackChecks({ ...config, publicAppUrl: 'https://student-defense.example' }));
 });
 
 test('notes API requires verified bearer auth before reading rows', async () => {
