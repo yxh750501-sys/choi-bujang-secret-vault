@@ -24,6 +24,14 @@
 
 `respond.mjs`의 `checkDenyRules`는 **ALEPH SDP 엔진이 검증해 전달한 출발 주소**에만 적용하는 별도 ZTNA 거부 단계입니다. 기존 `src/decider.mjs` 요청에는 검증된 출발 주소 필드가 없으므로 브라우저가 주장한 주소로 차단하지 않으며, 실제 운영 엔진에 규칙을 설치했다고 기록하지 않습니다. 규칙은 15분 뒤 만료되고 같은 주소에서 정상 이벤트가 확인되면 설치를 보류합니다. 이 결과는 수업용 경보 재생이며 실제 로그인 공격 차단이나 공식 심판 판정이 아닙니다.
 
+## 보너스 xdr-02 저장점: 웹 주입 공격
+
+`xdr/fixtures/web-injection.json`의 수업용 Wazuh 경보 26건을 `xdr/web-injection/read-alerts.mjs`가 시각·출발 주소·계정·규칙 수준·가린 설명으로 읽습니다. `patterns.json`은 MITRE ATT&CK T1190을 근거로 SQL 주입, 스크립트 삽입, 반복 경로 이탈, 단발성 의심 입력을 구분합니다. `decide.mjs`는 다른 파일이나 패키지를 불러오지 않고 경보 하나만으로 판단합니다.
+
+재현: `node xdr/web-injection/read-alerts.mjs | wc -l`은 26줄이어야 합니다. `npm run xdr:run -- web-injection`은 `xdr/web-injection/result.json`을 갱신합니다. 시험 경보 결과는 **block 8 · alert 9 · record 9**, 일반 이벤트 차단 0건입니다. `node xdr/web-injection/respond.mjs`는 반복된 명확한 주입 경보에 한해 15분짜리 거부 규칙 후보를 만들고 차단·알림 판정 17건을 `xdr/alerts.log`에 추가합니다. 재실행하면 로그도 추가됩니다.
+
+`respond.mjs`의 `checkDenyRules`는 ALEPH SDP 엔진이 검증해 전달한 출발 주소로만 평가할 별도 거부 단계입니다. 기존 판정기 계약에 검증된 출발 주소가 없어 `src/decider.mjs` 규칙은 변경하지 않았습니다. 같은 주소에서 일반 이벤트가 보이면 규칙 설치를 보류합니다. 실제 운영 엔진의 규칙 설치, 실제 웹 공격 차단, 공식 심판 판정은 확인하지 않았습니다.
+
 ## 이전 단계 구현 기록
 
 기존 1~10단계의 인증·소유권·복구 기능을 유지하며, 11단계는 설치형 PWA와 서버 측 기기 승인 검사를 추가합니다. `aleph.config.json`의 `step`은 11이며 `public/manifest.webmanifest`와 `public/sw.js`를 통해 설치 안내와 공개 앱 셸의 오프라인 안내를 제공합니다. Service Worker는 인증·기기·메모·복구 API 응답을 캐시하지 않습니다.
