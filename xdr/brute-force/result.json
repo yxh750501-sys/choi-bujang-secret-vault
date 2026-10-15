@@ -1,0 +1,179 @@
+{
+  "schema": "aleph.xdr.result.v1",
+  "moduleKey": "brute-force",
+  "decisions": [
+    {
+      "alertId": "bf-01",
+      "action": "block",
+      "confidence": 0.9480000000000001,
+      "reason": "rapid_source_failures"
+    },
+    {
+      "alertId": "bf-02",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "multi_account_spray"
+    },
+    {
+      "alertId": "bf-03",
+      "action": "block",
+      "confidence": 0.896,
+      "reason": "rapid_source_failures"
+    },
+    {
+      "alertId": "bf-04",
+      "action": "block",
+      "confidence": 0.9520000000000001,
+      "reason": "rapid_source_failures"
+    },
+    {
+      "alertId": "bf-05",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "rapid_source_failures"
+    },
+    {
+      "alertId": "bf-06",
+      "action": "block",
+      "confidence": 0.9610000000000001,
+      "reason": "rapid_source_failures"
+    },
+    {
+      "alertId": "bf-07",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "rapid_source_failures"
+    },
+    {
+      "alertId": "bf-08",
+      "action": "block",
+      "confidence": 0.97,
+      "reason": "rapid_source_failures"
+    },
+    {
+      "alertId": "bf-09",
+      "action": "block",
+      "confidence": 0.895,
+      "reason": "multi_account_spray"
+    },
+    {
+      "alertId": "bf-10",
+      "action": "block",
+      "confidence": 0.99,
+      "reason": "rapid_source_failures"
+    },
+    {
+      "alertId": "bf-11",
+      "action": "alert",
+      "confidence": 0.6200000000000001,
+      "reason": "limited_login_failures"
+    },
+    {
+      "alertId": "bf-12",
+      "action": "alert",
+      "confidence": 0.6599999999999999,
+      "reason": "limited_login_failures"
+    },
+    {
+      "alertId": "bf-13",
+      "action": "alert",
+      "confidence": 0.5950000000000001,
+      "reason": "limited_login_failures"
+    },
+    {
+      "alertId": "bf-14",
+      "action": "alert",
+      "confidence": 0.635,
+      "reason": "limited_login_failures"
+    },
+    {
+      "alertId": "bf-15",
+      "action": "alert",
+      "confidence": 0.6300000000000001,
+      "reason": "limited_login_failures"
+    },
+    {
+      "alertId": "bf-16",
+      "action": "alert",
+      "confidence": 0.5950000000000001,
+      "reason": "limited_login_failures"
+    },
+    {
+      "alertId": "bf-17",
+      "action": "alert",
+      "confidence": 0.6200000000000001,
+      "reason": "limited_login_failures"
+    },
+    {
+      "alertId": "bf-18",
+      "action": "alert",
+      "confidence": 0.7,
+      "reason": "limited_login_failures"
+    },
+    {
+      "alertId": "bf-19",
+      "action": "alert",
+      "confidence": 0.605,
+      "reason": "limited_login_failures"
+    },
+    {
+      "alertId": "bf-20",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_brute_force_pattern"
+    },
+    {
+      "alertId": "bf-21",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_brute_force_pattern"
+    },
+    {
+      "alertId": "bf-22",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_brute_force_pattern"
+    },
+    {
+      "alertId": "bf-23",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_brute_force_pattern"
+    },
+    {
+      "alertId": "bf-24",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_brute_force_pattern"
+    },
+    {
+      "alertId": "bf-25",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_brute_force_pattern"
+    },
+    {
+      "alertId": "bf-26",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_brute_force_pattern"
+    },
+    {
+      "alertId": "bf-27",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_brute_force_pattern"
+    },
+    {
+      "alertId": "bf-28",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_brute_force_pattern"
+    }
+  ],
+  "counts": {
+    "block": 10,
+    "alert": 9,
+    "record": 9
+  }
+}
