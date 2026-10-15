@@ -1,0 +1,17 @@
+[
+  {
+    "name": "rapid_source_failures",
+    "condition": "T1110 경보에서 한 출발 주소의 짧은 시간 로그인 실패가 20건 이상이고 규칙 수준이 10 이상",
+    "evidence": "MITRE ATT&CK T1110: 짧은 시간에 반복되는 인증 실패는 무차별 대입 신호입니다."
+  },
+  {
+    "name": "multi_account_spray",
+    "condition": "T1110 경보에서 같은 주소가 여러 계정을 시도하고 15건 이상 실패하거나 8계정 이상을 시도하며 규칙 수준이 10 이상",
+    "evidence": "MITRE ATT&CK T1110: 여러 계정에 비밀번호를 반복 대입하는 방식은 password spraying입니다."
+  },
+  {
+    "name": "limited_login_failures",
+    "condition": "T1110 경보에 로그인 실패가 3건 이상 있으나 차단 기준보다 약한 경우",
+    "evidence": "MITRE ATT&CK T1110: 소수의 실패는 공격 신호일 수 있으나 정상 사용자의 오입력과 구별해야 합니다."
+  }
+]

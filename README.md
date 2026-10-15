@@ -16,6 +16,14 @@
 
 `src/attack-check.mjs`는 배포 주소 형식만 검증합니다. `npm run bundle`에서는 요청을 보내지 않고 모든 `attackAttempts`를 `observed: "not_run"`으로 기록합니다. 이는 공식 심판 점수가 아닙니다.
 
+## 보너스 xdr-01 저장점: 무차별 로그인 공격
+
+`xdr/fixtures/brute-force.json`의 수업용 Wazuh 경보 28건을 `xdr/brute-force/read-alerts.mjs`가 시각·출발 주소·계정·규칙 수준·가린 설명으로 읽습니다. `patterns.json`은 MITRE ATT&CK T1110의 짧은 시간 로그인 실패와 여러 계정 대입 근거를 기록합니다. 심판이 단독으로 불러오는 `decide.mjs`는 import·파일 접근·네트워크 요청 없이 `block`·`alert`·`record`와 0~1 확신도를 반환합니다.
+
+재현: `node xdr/brute-force/read-alerts.mjs | wc -l`은 28줄이어야 합니다. `npm run xdr:run -- brute-force`는 `xdr/brute-force/result.json`을 갱신합니다. 시험 fixture의 결과는 **block 10 · alert 9 · record 9**, 정상 이벤트 차단 0건입니다. `node xdr/brute-force/respond.mjs`는 확실한 차단 후보의 출발 주소·만료 시각·근거 경보 ID를 가진 거부 규칙을 만들고, 차단·알림 판정 19건을 `xdr/alerts.log`에 한 줄씩 추가합니다. 이 명령을 다시 실행하면 알림 로그도 추가됩니다.
+
+`respond.mjs`의 `checkDenyRules`는 **ALEPH SDP 엔진이 검증해 전달한 출발 주소**에만 적용하는 별도 ZTNA 거부 단계입니다. 기존 `src/decider.mjs` 요청에는 검증된 출발 주소 필드가 없으므로 브라우저가 주장한 주소로 차단하지 않으며, 실제 운영 엔진에 규칙을 설치했다고 기록하지 않습니다. 규칙은 15분 뒤 만료되고 같은 주소에서 정상 이벤트가 확인되면 설치를 보류합니다. 이 결과는 수업용 경보 재생이며 실제 로그인 공격 차단이나 공식 심판 판정이 아닙니다.
+
 ## 이전 단계 구현 기록
 
 기존 1~10단계의 인증·소유권·복구 기능을 유지하며, 11단계는 설치형 PWA와 서버 측 기기 승인 검사를 추가합니다. `aleph.config.json`의 `step`은 11이며 `public/manifest.webmanifest`와 `public/sw.js`를 통해 설치 안내와 공개 앱 셸의 오프라인 안내를 제공합니다. Service Worker는 인증·기기·메모·복구 API 응답을 캐시하지 않습니다.
