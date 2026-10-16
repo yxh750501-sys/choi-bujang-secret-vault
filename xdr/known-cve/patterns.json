@@ -1,0 +1,12 @@
+[
+  {
+    "name": "complete_log4shell_lookup",
+    "condition": "T1190 경보의 요청 머리글 또는 URL 인자에 완전한 ${jndi:ldap://...}, ${jndi:ldaps://...}, ${jndi:rmi://...} 원격 조회 형태가 있고 출발 주소와 규칙 수준 10 이상이 확인됨",
+    "evidence": "CVE-2021-44228과 MITRE ATT&CK T1190: Log4j가 기록하는 입력의 JNDI 원격 조회 형태는 공개 앱 악용 신호입니다."
+  },
+  {
+    "name": "possible_known_cve_probe",
+    "condition": "T1190 경보 수준 5 이상에서 취약점 이름·불완전한 조회 표기·점검 도구 흔적이 보이지만 완전한 원격 조회 형태는 없음",
+    "evidence": "CVE-2021-44228과 MITRE ATT&CK T1190: 취약점 이름 검색과 점검 도구 흔적만으로 악용을 확정할 수 없어 확인이 필요합니다."
+  }
+]

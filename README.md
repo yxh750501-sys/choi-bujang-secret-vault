@@ -32,6 +32,14 @@
 
 `respond.mjs`의 `checkDenyRules`는 ALEPH SDP 엔진이 검증해 전달한 출발 주소로만 평가할 별도 거부 단계입니다. 기존 판정기 계약에 검증된 출발 주소가 없어 `src/decider.mjs` 규칙은 변경하지 않았습니다. 같은 주소에서 일반 이벤트가 보이면 규칙 설치를 보류합니다. 실제 운영 엔진의 규칙 설치, 실제 웹 공격 차단, 공식 심판 판정은 확인하지 않았습니다.
 
+## 보너스 xdr-03 저장점: 알려진 취약점 악용
+
+`xdr/fixtures/known-cve.json`의 수업용 Wazuh 경보 24건을 `xdr/known-cve/read-alerts.mjs`가 시각·출발 주소·계정·규칙 수준·가린 설명으로 읽습니다. 원격 조회 문자열은 읽기 결과와 감사 로그에 넣지 않습니다. `patterns.json`은 CVE-2021-44228과 MITRE ATT&CK T1190을 근거로 완전한 JNDI 원격 조회 형태와 불확실한 취약점 점검 흔적을 구분합니다. `decide.mjs`는 import·파일 접근·네트워크 요청 없이 경보 하나만으로 판단합니다.
+
+재현: `node xdr/known-cve/read-alerts.mjs | wc -l`은 24줄이어야 합니다. `npm run xdr:run -- known-cve`는 `xdr/known-cve/result.json`을 갱신합니다. 시험 경보 결과는 **block 8 · alert 8 · record 8**, 일반 이벤트 차단 0건입니다. `node xdr/known-cve/respond.mjs`는 완전한 원격 조회 경보의 출발 주소에 한해 15분짜리 거부 규칙 후보를 만들고 차단·알림 판정 16건을 `xdr/alerts.log`에 추가합니다. 재실행하면 로그도 추가됩니다.
+
+`respond.mjs`의 `checkDenyRules`는 ALEPH SDP 엔진이 검증해 전달한 출발 주소로만 평가할 별도 거부 단계입니다. 기존 `src/decider.mjs` 계약에는 검증된 출발 주소가 없어 판정기 규칙은 변경하지 않았습니다. 같은 주소에서 일반 이벤트가 보이면 설치를 보류합니다. 실제 운영 엔진의 규칙 설치, 취약한 라이브러리 버전 점검·패치, 공식 심판 판정은 확인하지 않았습니다.
+
 ## 이전 단계 구현 기록
 
 기존 1~10단계의 인증·소유권·복구 기능을 유지하며, 11단계는 설치형 PWA와 서버 측 기기 승인 검사를 추가합니다. `aleph.config.json`의 `step`은 11이며 `public/manifest.webmanifest`와 `public/sw.js`를 통해 설치 안내와 공개 앱 셸의 오프라인 안내를 제공합니다. Service Worker는 인증·기기·메모·복구 API 응답을 캐시하지 않습니다.
