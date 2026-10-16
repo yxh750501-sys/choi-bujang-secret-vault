@@ -56,6 +56,14 @@
 
 `respond.mjs`는 Wazuh 계정 이름을 ALEPH SDP 엔진의 검증된 사용자 참조로 매핑받을 때만 회수 콜백과 별도 ZTNA 거부 규칙을 호출합니다. 기존 `src/decider.mjs` 규칙은 변경하지 않았습니다. 일반 이벤트만으로는 회수 후보를 만들지 않고, 관련 없는 계정은 통과하며 규칙은 만료됩니다. 실제 운영 세션 회수·심판 판정은 확인하지 않았습니다.
 
+## 보너스 xdr-06 저장점: 자료 빼돌리기
+
+`xdr/fixtures/exfiltration.json`의 수업용 Wazuh 경보 30건을 `xdr/exfiltration/read-alerts.mjs`가 시각·출발 주소·계정·규칙 수준·가린 설명으로 읽습니다. `patterns.json`은 MITRE ATT&CK T1041·T1048을 근거로 낯선 목적지로의 대량 전송, 업무 시간 밖 압축 자료 전송, 반복 대량 전송을 구분합니다. `decide.mjs`는 import·파일 접근·네트워크 요청 없이 경보 하나만으로 판단합니다.
+
+재현: `node xdr/exfiltration/read-alerts.mjs | wc -l`은 30줄이어야 합니다. `npm run xdr:run -- exfiltration`은 `xdr/exfiltration/result.json`을 갱신합니다. 시험 경보 결과는 **block 10 · alert 10 · record 10**, 일반 이벤트 차단 0건입니다. `node xdr/exfiltration/respond.mjs`는 15분짜리 목적지 거부 규칙 후보 10건을 만들고 차단·알림 판정 20건을 `xdr/alerts.log`에 추가합니다. 재실행하면 로그도 추가됩니다.
+
+`respond.mjs`의 별도 ZTNA 거부 단계는 ALEPH SDP 엔진이 확인해 전달한 외부 목적지 주소에만 적용합니다. 일반 이벤트에서 쓰인 목적지는 규칙 후보에서 제외하고, 기존 `src/decider.mjs` 규칙은 변경하지 않았습니다. 실제 운영 전송 차단·심판 판정은 확인하지 않았습니다.
+
 ## 이전 단계 구현 기록
 
 기존 1~10단계의 인증·소유권·복구 기능을 유지하며, 11단계는 설치형 PWA와 서버 측 기기 승인 검사를 추가합니다. `aleph.config.json`의 `step`은 11이며 `public/manifest.webmanifest`와 `public/sw.js`를 통해 설치 안내와 공개 앱 셸의 오프라인 안내를 제공합니다. Service Worker는 인증·기기·메모·복구 API 응답을 캐시하지 않습니다.

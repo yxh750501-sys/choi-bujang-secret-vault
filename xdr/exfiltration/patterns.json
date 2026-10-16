@@ -1,0 +1,22 @@
+[
+  {
+    "name": "large_new_destination_transfer",
+    "condition": "T1041 또는 T1048 경보 수준 10 이상에서 처음 보는 외부 목적지로 5천만 바이트 이상 전송됨",
+    "evidence": "MITRE ATT&CK T1041 및 T1048: 낯선 외부 목적지로의 대량 전송은 자료 반출 신호입니다."
+  },
+  {
+    "name": "after_hours_archive_transfer",
+    "condition": "T1048 경보 수준 10 이상에서 업무 시간 밖 압축 자료 또는 반복 전송이 5천만 바이트 이상 확인됨",
+    "evidence": "MITRE ATT&CK T1048: 업무 시간 밖 압축 파일의 큰 외부 전송은 다른 프로토콜을 이용한 반출 신호입니다."
+  },
+  {
+    "name": "repeated_bulk_exfiltration",
+    "condition": "T1041 또는 T1048 경보 수준 10 이상에서 대용량 반복·평소와 다른 포트·자료실 전체 복사가 5천만 바이트 이상 확인됨",
+    "evidence": "MITRE ATT&CK T1041 및 T1048: 반복 대량 전송과 평소와 다른 통로는 반출 가능성을 높입니다."
+  },
+  {
+    "name": "possible_exfiltration",
+    "condition": "T1041 또는 T1048 경보 수준 5 이상이지만 대량 외부 전송의 차단 근거는 부족함",
+    "evidence": "MITRE ATT&CK T1041 및 T1048: 단발성 또는 작은 전송은 정상 백업·동기화와 구별할 확인이 필요합니다."
+  }
+]
