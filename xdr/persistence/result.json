@@ -1,0 +1,155 @@
+{
+  "schema": "aleph.xdr.result.v1",
+  "moduleKey": "persistence",
+  "decisions": [
+    {
+      "alertId": "ps-01",
+      "action": "block",
+      "confidence": 0.9299999999999999,
+      "reason": "unsigned_service_persistence"
+    },
+    {
+      "alertId": "ps-02",
+      "action": "block",
+      "confidence": 0.9299999999999999,
+      "reason": "unknown_scheduled_task"
+    },
+    {
+      "alertId": "ps-03",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "unknown_startup_entry"
+    },
+    {
+      "alertId": "ps-04",
+      "action": "block",
+      "confidence": 0.9299999999999999,
+      "reason": "unsigned_service_persistence"
+    },
+    {
+      "alertId": "ps-05",
+      "action": "block",
+      "confidence": 0.87,
+      "reason": "unknown_scheduled_task"
+    },
+    {
+      "alertId": "ps-06",
+      "action": "block",
+      "confidence": 0.9299999999999999,
+      "reason": "unsigned_service_persistence"
+    },
+    {
+      "alertId": "ps-07",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "unknown_scheduled_task"
+    },
+    {
+      "alertId": "ps-08",
+      "action": "block",
+      "confidence": 0.9299999999999999,
+      "reason": "unsigned_service_persistence"
+    },
+    {
+      "alertId": "ps-09",
+      "action": "alert",
+      "confidence": 0.62,
+      "reason": "possible_persistence_change"
+    },
+    {
+      "alertId": "ps-10",
+      "action": "alert",
+      "confidence": 0.64,
+      "reason": "possible_persistence_change"
+    },
+    {
+      "alertId": "ps-11",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "possible_persistence_change"
+    },
+    {
+      "alertId": "ps-12",
+      "action": "alert",
+      "confidence": 0.62,
+      "reason": "possible_persistence_change"
+    },
+    {
+      "alertId": "ps-13",
+      "action": "alert",
+      "confidence": 0.66,
+      "reason": "possible_persistence_change"
+    },
+    {
+      "alertId": "ps-14",
+      "action": "alert",
+      "confidence": 0.62,
+      "reason": "possible_persistence_change"
+    },
+    {
+      "alertId": "ps-15",
+      "action": "alert",
+      "confidence": 0.64,
+      "reason": "possible_persistence_change"
+    },
+    {
+      "alertId": "ps-16",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "possible_persistence_change"
+    },
+    {
+      "alertId": "ps-17",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_persistence_pattern"
+    },
+    {
+      "alertId": "ps-18",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_persistence_pattern"
+    },
+    {
+      "alertId": "ps-19",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_persistence_pattern"
+    },
+    {
+      "alertId": "ps-20",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_persistence_pattern"
+    },
+    {
+      "alertId": "ps-21",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_persistence_pattern"
+    },
+    {
+      "alertId": "ps-22",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_persistence_pattern"
+    },
+    {
+      "alertId": "ps-23",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_persistence_pattern"
+    },
+    {
+      "alertId": "ps-24",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no_supported_persistence_pattern"
+    }
+  ],
+  "counts": {
+    "block": 8,
+    "alert": 8,
+    "record": 8
+  }
+}

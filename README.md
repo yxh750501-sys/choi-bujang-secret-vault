@@ -40,6 +40,14 @@
 
 `respond.mjs`의 `checkDenyRules`는 ALEPH SDP 엔진이 검증해 전달한 출발 주소로만 평가할 별도 거부 단계입니다. 기존 `src/decider.mjs` 계약에는 검증된 출발 주소가 없어 판정기 규칙은 변경하지 않았습니다. 같은 주소에서 일반 이벤트가 보이면 설치를 보류합니다. 실제 운영 엔진의 규칙 설치, 취약한 라이브러리 버전 점검·패치, 공식 심판 판정은 확인하지 않았습니다.
 
+## 보너스 xdr-04 저장점: 몰래 심어진 프로그램
+
+`xdr/fixtures/persistence.json`의 수업용 Wazuh 경보 24건을 `xdr/persistence/read-alerts.mjs`가 시각·출발 주소·계정·규칙 수준·가린 설명으로 읽습니다. `patterns.json`은 MITRE ATT&CK T1543·T1053을 근거로 서명 없는 서비스, 낯선 예약 작업, 시작 항목 변경을 구분합니다. `decide.mjs`는 import·파일 접근·네트워크 요청 없이 경보 하나만으로 판단합니다.
+
+재현: `node xdr/persistence/read-alerts.mjs | wc -l`은 24줄이어야 합니다. `npm run xdr:run -- persistence`는 `xdr/persistence/result.json`을 갱신합니다. 시험 경보 결과는 **block 8 · alert 8 · record 8**, 일반 이벤트 차단 0건입니다. `node xdr/persistence/respond.mjs`는 시험용 기기 매핑을 사용해 15분짜리 격리 규칙 후보 8건을 만들고 차단·알림 판정 16건을 `xdr/alerts.log`에 추가합니다. 재실행하면 로그도 추가됩니다.
+
+`respond.mjs`는 신뢰할 수 있는 Wazuh 기기 이름과 ALEPH SDP 엔진의 검증된 기기 참조를 매핑받을 때만 규칙 후보를 만듭니다. 기존 `src/decider.mjs` 요청에는 그 매핑이 없어 판정기 규칙은 변경하지 않았습니다. 일반 이벤트만으로는 격리 규칙을 만들지 않고, 다른 기기는 통과하며 규칙은 만료됩니다. 실제 운영 기기 격리·심판 판정은 확인하지 않았습니다.
+
 ## 이전 단계 구현 기록
 
 기존 1~10단계의 인증·소유권·복구 기능을 유지하며, 11단계는 설치형 PWA와 서버 측 기기 승인 검사를 추가합니다. `aleph.config.json`의 `step`은 11이며 `public/manifest.webmanifest`와 `public/sw.js`를 통해 설치 안내와 공개 앱 셸의 오프라인 안내를 제공합니다. Service Worker는 인증·기기·메모·복구 API 응답을 캐시하지 않습니다.
