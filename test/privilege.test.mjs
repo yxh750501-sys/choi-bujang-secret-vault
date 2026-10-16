@@ -1,0 +1,76 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { readAlerts, projectAlert } from '../xdr/privilege/read-alerts.mjs';
+import { decide } from '../xdr/privilege/decide.mjs';
+import { checkDenyRules, respond } from '../xdr/privilege/respond.mjs';
+
+const root = new URL('../', import.meta.url);
+const fixture = JSON.parse(await readFile(new URL('xdr/fixtures/privilege.json', root), 'utf8'));
+
+test('경보 읽기는 원본 26건을 다섯 안전 필드로 투영한다', async () => {
+  const rows = await readAlerts();
+  assert.equal(rows.length, fixture.alerts.length);
+  assert.deepEqual(Object.keys(rows[0]), ['timestamp', 'sourceAddress', 'account', 'ruleLevel', 'description']);
+  const secret = projectAlert({ data: { srcuser: 'person@example.com', srcip: '192.0.2.1' },
+    rule: { level: 2, description: 'token=hidden-value Bearer hidden-value' } });
+  assert.equal(secret.account, '[ACCOUNT_REDACTED]');
+  assert.doesNotMatch(secret.description, /hidden-value/u);
+});
+
+test('명확한 관리자 권한 탈취는 차단 후보, 애매한 변경은 알림, 정상 사건은 기록한다', async () => {
+  const decisions = fixture.alerts.map(decide);
+  assert.deepEqual(decisions.reduce((counts, item) => {
+    counts[item.action] += 1;
+    return counts;
+  }, { block: 0, alert: 0, record: 0 }), { block: 9, alert: 8, record: 9 });
+  assert.ok(decisions.slice(17).every(item => item.action === 'record'));
+  assert.ok(decisions.every(item => item.confidence >= 0 && item.confidence <= 1));
+  const patterns = JSON.parse(await readFile(new URL('xdr/privilege/patterns.json', root), 'utf8'));
+  assert.ok(patterns.every(item => item.evidence.includes('T1068') || item.evidence.includes('T1078')));
+  assert.ok(decisions.filter(item => item.action !== 'record')
+    .every(item => patterns.some(pattern => pattern.name === item.reason)));
+  const strong = fixture.alerts[0];
+  assert.equal(decide({ ...strong, rule: { ...strong.rule, mitre: [] } }).action, 'record');
+  assert.equal(decide({ ...strong, rule: { ...strong.rule, level: 6 } }).action, 'alert');
+  assert.equal(decide({ ...strong, data: { ...strong.data, group: 'project-week3' } }).action, 'alert');
+  const source = await readFile(new URL('xdr/privilege/decide.mjs', root), 'utf8');
+  assert.doesNotMatch(source, /\bimport\b|\breadFile\b|\bfetch\s*\(/u);
+});
+
+test('검증된 계정만 회수 후보가 되고 일반 계정은 통과한다', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'privilege-'));
+  try {
+    const now = new Date('2026-10-16T00:00:00Z');
+    const decisions = fixture.alerts.map(alert => ({ alertId: alert.id, ...decide(alert) }));
+    const installed = [];
+    const revoked = [];
+    const outcome = await respond(fixture.alerts, decisions, { now: () => now,
+      logPath: join(dir, 'alerts.log'),
+      resolveTrustedUser: async account => /^user\d{2}$/u.test(account) ? `fixture:${account}` : null,
+      revokeSessions: async (ref, id) => { revoked.push([ref, id]); },
+      installRule: async rule => { installed.push(rule); } });
+    assert.equal(outcome.candidates.length, 9);
+    assert.equal(outcome.notifications, 17);
+    assert.equal(installed.length, 9);
+    assert.equal(revoked.length, 9);
+    assert.ok(installed.every(rule => rule.evidenceAlertId && rule.expiresAt === '2026-10-16T00:15:00.000Z'));
+    assert.equal(checkDenyRules(`fixture:${fixture.alerts[0].data.srcuser}`, installed, now).effect, 'deny');
+    assert.deepEqual(checkDenyRules('fixture:unrelated', installed, now), { effect: 'pass' });
+    assert.deepEqual(checkDenyRules(`fixture:${fixture.alerts[0].data.srcuser}`, installed,
+      new Date('2026-10-16T00:15:00Z')), { effect: 'pass' });
+    const lines = (await readFile(join(dir, 'alerts.log'), 'utf8')).trim().split('\n');
+    assert.equal(lines.length, 17);
+    assert.ok(lines.every(line => !line.includes('userRef') && !line.includes('srcuser')));
+    const unverified = await respond(fixture.alerts, decisions, { now: () => now,
+      logPath: join(dir, 'unverified.log') });
+    assert.equal(unverified.candidates.length, 0);
+    const normalOnly = await respond(fixture.alerts.slice(17), decisions.slice(17), { now: () => now,
+      logPath: join(dir, 'normal.log'), resolveTrustedUser: async () => 'fixture:normal' });
+    assert.equal(normalOnly.candidates.length, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

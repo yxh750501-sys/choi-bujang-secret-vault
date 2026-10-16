@@ -1,0 +1,17 @@
+[
+  {
+    "name": "unexpected_admin_membership",
+    "condition": "T1078 경보 수준 10 이상에서 일반 계정이 administrators 그룹에 새로 들어가거나 제거 직후 재추가됨",
+    "evidence": "MITRE ATT&CK T1078: 정상 계정을 탈취한 공격자는 높은 권한의 그룹 멤버십을 악용할 수 있습니다."
+  },
+  {
+    "name": "unusual_admin_execution",
+    "condition": "T1068 또는 T1078 경보 수준 10 이상에서 새 관리자 권한·다른 계정 권한으로 명령을 실행하거나 업무 시간 밖 낯선 주소에서 관리자 명령을 실행함",
+    "evidence": "MITRE ATT&CK T1068 및 T1078: 권한 상승 직후의 관리자 명령과 낯선 맥락의 권한 사용은 악용 신호입니다."
+  },
+  {
+    "name": "possible_privilege_change",
+    "condition": "T1068 또는 T1078 경보 수준 5 이상이지만 관리자 멤버십·명령 실행의 명확한 악용 조건은 충족하지 못함",
+    "evidence": "MITRE ATT&CK T1068 및 T1078: 단발성 권한 변경은 승인된 관리 작업일 수 있어 추가 확인이 필요합니다."
+  }
+]
